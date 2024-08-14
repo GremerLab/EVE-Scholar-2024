@@ -3,10 +3,11 @@ library(ggplot2)
 library(tidyverse)
 library(lubridate)
 library(readr)
+library(germinationmetrics)
 
-germ_wk1 <- read_csv("Week1_Germ.csv") ## Read data for all weeks
-germ_wk2 <- read_csv("week2_germ.csv")
-germ_wk3 <- read_csv
+germ_wk1 <- read_csv("../Input/Week1_Germ.csv") ## Read data for all weeks
+germ_wk2 <- read_csv("../Input/week2_germ.csv")
+germ_wk3 <- read_csv("../Input/Week3_Germ.csv")
 
 # Merge all weeks into one dataset
 dat <- 
@@ -14,6 +15,7 @@ dat <-
 # Check structure of data
 str(germ_wk1)
 str(germ_wk2)
+str(germ_wk3)
 
 # Create column for data, germination percentage, and total count
 
@@ -30,13 +32,25 @@ dat_long2 <-  germ_wk2 %>%
     names_to = "date", 
     values_to = "germination_count"
   )
-
+dat_long3 <-  germ_wk3 %>%  
+  pivot_longer(
+    cols = starts_with("8"),
+    names_to = "date", 
+    values_to = "germination_count"
+  )
 # Create daily + weekly total count and germ_percent column
 dat_long <-  dat_long %>% 
   group_by(Cell) %>% 
   mutate(total_germ = cumsum(germination_count)) 
 
 dat_long <- dat_long %>%  
+  mutate(germ_percent = (total_germ/Actual_count) * 100)
+
+dat_long3 <-  dat_long3 %>% 
+  group_by(Cell) %>% 
+  mutate(total_germ = cumsum(germination_count)) 
+
+dat_long3 <- dat_long3 %>%  
   mutate(germ_percent = (total_germ/Actual_count) * 100)
 
 # Add Actual_count to dat_long2
@@ -57,18 +71,17 @@ dat_long <- dat_long %>% group_by(date, Pop, Treatment) %>%
 dat_long2 <- dat_long2 %>% group_by(date, Pop, Treatment) %>% 
   mutate(avg_total = mean(total_germ))
 
-head(dat_long)
-
-str(dat_long)
-
-head(dat_long2)
-
-str(dat_long2)
+dat_long3 <- dat_long3 %>% group_by(date, Pop, Treatment) %>% 
+  mutate(avg_total = mean(total_germ))
 
 
 # Summary statistics
 
 summary(germ_wk1)
+
+summary(germ_wk2)
+
+summary(germ_wk3)
 
 # Summary statistics by treatment and population
 
@@ -90,11 +103,6 @@ sum_population <-
     N = n()
   )
   
-# Germination rate calculation by rep
-
-# Calculate germination time, then reciprocal
-  
-
 ## Visualizations
 
 # Germination counts over time
@@ -155,6 +163,27 @@ dat_long$date <- as.Date(dat_long$date, format = "%m/%d/%Y")
 start_date <- as.Date("2024-07-23")
 
 dat_long$days_to_germ <- as.numeric(dat_long$date - start_date) 
+
+# Germination rate calculation by cell
+
+# Calculate germination rate
+dat_long <- dat_long %>% 
+  group_by(Cell) %>% 
+  mutate(
+    germination_rate = sum(germination_count)/sum(germination_count * days_to_germ),
+    germination_rate = ifelse(is.nan(germination_rate) | is.infinite(germination_rate), 
+                              0, germination_rate)
+  )
+
+ggplot(dat_long, mapping = aes(x = Treatment, y = germination_rate, color = as.factor(Treatment), 
+                                group = as.factor(Treatment))) +
+  geom_boxplot() +
+  facet_wrap(.~Pop, ncol = 4) +
+  ylab("Germination rate") +
+  xlab("Population") +
+  labs(color = "Treatment") +
+  ggtitle("Week 1 Germination Rate")
+  
 
 ggplot(dat_long, mapping = aes(x = days_to_germ, y = avg_total, color = as.factor(Treatment),
                                   group = as.factor(Treatment))) +
