@@ -3,7 +3,7 @@ library(ggplot2)
 library(tidyverse)
 library(lubridate)
 library(readr)
-library(germinationmetrics)
+library(purrr)
 
 germ_wk1 <- read_csv("../Input/Week1_Germ.csv") ## Read data for all weeks
 germ_wk2 <- read_csv("../Input/week2_germ.csv")
@@ -19,61 +19,61 @@ str(germ_wk3)
 
 # Create column for data, germination percentage, and total count
 
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(lubridate)
+library(readr)
+library(purrr)
+
+germ_wk1 <- read_csv("Week1_Germ.csv") ## Read data for all weeks
+germ_wk2 <- read_csv("week2_germ.csv")
+germ_wk3 <- read_csv("Week3_Germ.csv")
+
+# Merge all weeks into one dataset
+dat <- 
+  
+# Check structure of data
+str(germ_wk1)
+str(germ_wk2)
+str(germ_wk3)
+
+# Add Actual_count to germ_wk2
+
+germ_wk2$Actual_count <- germ_wk1$Actual_count
+
+# Create column for data, germination percentage, and total count
+
 # Create date and germ_count columns
-dat_long <-  germ_wk1 %>%  
-  pivot_longer(
-    cols = starts_with("7"),
-    names_to = "date", 
-    values_to = "germination_count"
-  )
-dat_long2 <-  germ_wk2 %>%  
-  pivot_longer(
-    cols = matches("^(7|8)"),
-    names_to = "date", 
-    values_to = "germination_count"
-  )
-dat_long3 <-  germ_wk3 %>%  
-  pivot_longer(
-    cols = starts_with("8"),
-    names_to = "date", 
-    values_to = "germination_count"
-  )
+dat_list <- list(germ_wk1, germ_wk2, germ_wk3)
+
+prefix_list <- list("7", c("7", "8"), "8")
+
+dat_long_list <- map2(dat_list, prefix_list, ~ .x %>% 
+                        pivot_longer(
+                          cols = starts_with(.y),
+                          names_to = "date", 
+                          values_to = "germination_count"
+                        ))
+
+
 # Create daily + weekly total count and germ_percent column
-dat_long <-  dat_long %>% 
-  group_by(Cell) %>% 
-  mutate(total_germ = cumsum(germination_count)) 
 
-dat_long <- dat_long %>%  
-  mutate(germ_percent = (total_germ/Actual_count) * 100)
+dat_long_list <- dat_long_list %>% 
+  map(~ .x %>% 
+        group_by(Cell) %>% 
+        mutate(total_germ = cumsum(germination_count)) %>%
+        ungroup() %>%
+        mutate(germ_percent = (total_germ / Actual_count) * 100)
+  )
 
-dat_long3 <-  dat_long3 %>% 
-  group_by(Cell) %>% 
-  mutate(total_germ = cumsum(germination_count)) 
-
-dat_long3 <- dat_long3 %>%  
-  mutate(germ_percent = (total_germ/Actual_count) * 100)
-
-# Add Actual_count to dat_long2
-dat_long2$Actual_count <- dat_long$Actual_count
-
-dat_long2 <-  dat_long2 %>% 
-  group_by(Cell) %>% 
-  mutate(total_germ = cumsum(germination_count)) 
-
-dat_long2 <- dat_long2 %>%  
-  mutate(germ_percent = (total_germ/Actual_count) * 100)
 
 # Column for cumulative germination
 
-dat_long <- dat_long %>% group_by(date, Pop, Treatment) %>% 
-  mutate(avg_total = mean(total_germ))
-
-dat_long2 <- dat_long2 %>% group_by(date, Pop, Treatment) %>% 
-  mutate(avg_total = mean(total_germ))
-
-dat_long3 <- dat_long3 %>% group_by(date, Pop, Treatment) %>% 
-  mutate(avg_total = mean(total_germ))
-
+dat_long_list <- dat_long_list %>% 
+  map(~ .x %>% 
+        group_by(date, Pop, Treatment) %>% 
+        mutate(avg_total = mean(total_germ)))
 
 # Summary statistics
 
@@ -109,32 +109,34 @@ sum_population <-
 
 # Week 1 and 2 Germination percentage by treatment
 
-weekly_data <- dat_long %>% filter(date > "7/29/24")
-head(weekly_data)
+# Extract each dataset
+germ_wk1 <- dat_long_list[[1]]
+germ_wk2 <- dat_long_list[[2]]
+germ_wk3 <- dat_long_list[[3]]
 
-weekly_data2 <- dat_long2 %>% filter(date > "8/5/24")
-head(weekly_data2)
+# Apply filtering by specific date
+germ_wk1_weekly <- germ_wk1 %>% filter(date > "7/29/24")
+germ_wk2_weekly <- germ_wk2 %>% filter(date > "8/5/24")
+germ_wk3_weekly <- germ_wk3 %>% filter(date > "8/12/24")
 
-ggplot(weekly_data, aes(x = Treatment, y = germ_percent, fill = Treatment)) + 
-  geom_boxplot() +
-  labs(title = "Week 1 Germination Percentage by Treatment", x = 
-         "Treatment", y = "Germination Percentage")
+germ_filtered_list <- list(germ_wk1_weekly, germ_wk2_weekly, germ_wk3_weekly)
 
-ggplot(weekly_data2, aes(x = Treatment, y = germ_percent, fill = Treatment)) + 
-  geom_boxplot() +
-  labs(title = "Week 2 Germination Percentage by Treatment", x = 
-         "Treatment", y = "Germination Percentage")
+week_labels <- c("Week 1", "Week 2", "Week 3")
+
+germ_filtered_list <- map2(germ_filtered_list, week_labels, ~ .x %>%
+                             mutate(week = .y))
+
+germ_filtered_list %>% 
+  map(~ ggplot(.x, aes(x = Treatment, y = germ_percent, group = Treatment, color = Treatment)) +
+        geom_boxplot() +
+        labs(title = paste("Germination Percentage By Treatment", unique(.x$week)), x = "Treatment", y = "Germination Percentage"))
 
 # Germination percentage by population
-ggplot(weekly_data, aes(x = Pop, y = germ_percent, fill = Pop)) +
-  geom_boxplot() +
-  labs(title = "Week 1 Germination Percentage by Population", x = 
-         "Population", y = "Germination Percentage")
 
-ggplot(weekly_data2, aes(x = Pop, y = germ_percent, fill = Pop)) +
-  geom_boxplot() +
-  labs(title = "Week 2 Germination Percentage by Population", x = 
-         "Population", y = "Germination Percentage")
+germ_filtered_list %>% 
+  map(~ ggplot(.x, aes(x = Pop, y = germ_percent, group = Pop, color = Pop)) +
+        geom_boxplot() +
+        labs(title = paste("Germination Percentage By Population", unique(.x$week)), x = "Population", y = "Germination Percentage"))
 
 # Interaction of population and treatment
 ggplot(weekly_data, aes(x = Pop, y = germ_percent, color = Treatment)) +
@@ -147,7 +149,8 @@ ggplot(weekly_data, aes(x = Pop, y = germ_percent, color = Treatment)) +
   labs(title = "Week 2: Combined Effects of Treatment and Population on Germination Percentage",
        x = "Population", y = "Germination Percentage")
 
-ggplot(weekly_data, mapping = aes(x = Treatment, y = germ_percent, color = as.factor(Treatment),
+
+ggplot(germ_wk1_weekly, mapping = aes(x = Treatment, y = germ_percent, color = as.factor(Treatment),
                                   group = as.factor(Treatment))) +
   geom_boxplot() +
   ylim(0, 100) +
@@ -157,17 +160,49 @@ ggplot(weekly_data, mapping = aes(x = Treatment, y = germ_percent, color = as.fa
   labs(color = "Treatment") +
   ggtitle("Week 1 Germination Percentage")
 
+ggplot(germ_wk2_weekly, mapping = aes(x = Treatment, y = germ_percent, color = as.factor(Treatment),
+                                      group = as.factor(Treatment))) +
+  geom_boxplot() +
+  ylim(0, 100) +
+  facet_wrap(.~Pop, ncol = 4) +
+  ylab("Germination percentage") +
+  xlab("Treatment") +
+  labs(color = "Treatment") +
+  ggtitle("Week 2 Germination Percentage")
+
+ggplot(germ_wk3_weekly, mapping = aes(x = Treatment, y = germ_percent, color = as.factor(Treatment),
+                                      group = as.factor(Treatment))) +
+  geom_boxplot() +
+  ylim(0, 100) +
+  facet_wrap(.~Pop, ncol = 4) +
+  ylab("Germination percentage") +
+  xlab("Treatment") +
+  labs(color = "Treatment") +
+  ggtitle("Week 3 Germination Percentage")
+
 # Calculate days to germinate, using days since start date
-dat_long$date <- as.Date(dat_long$date, format = "%m/%d/%Y")
+germ_wk1$date <- as.Date(germ_wk1$date, format = "%m/%d/%Y")
 
-start_date <- as.Date("2024-07-23")
+start_date1 <- as.Date("2024-07-23")
 
-dat_long$days_to_germ <- as.numeric(dat_long$date - start_date) 
+germ_wk1$days_to_germ <- as.numeric(germ_wk1$date - start_date1) 
+
+germ_wk2$date <- as.Date(germ_wk2$date, format = "%m/%d/%Y")
+
+start_date2 <- as.Date("2024-07-31")
+
+germ_wk2$days_to_germ <- as.numeric(germ_wk2$date - start_date2) 
+
+germ_wk3$date <- as.Date(germ_wk3$date, format = "%m/%d/%Y")
+
+start_date3 <- as.Date("2024-08-10")
+
+germ_wk3$days_to_germ <- as.numeric(germ_wk3$date - start_date3) 
 
 # Germination rate calculation by cell
 
 # Calculate germination rate
-dat_long <- dat_long %>% 
+germ_wk1 <- germ_wk1 %>% 
   group_by(Cell) %>% 
   mutate(
     germination_rate = sum(germination_count)/sum(germination_count * days_to_germ),
@@ -175,7 +210,23 @@ dat_long <- dat_long %>%
                               0, germination_rate)
   )
 
-ggplot(dat_long, mapping = aes(x = Treatment, y = germination_rate, color = as.factor(Treatment), 
+germ_wk2 <- germ_wk2 %>% 
+  group_by(Cell) %>% 
+  mutate(
+    germination_rate = sum(germination_count)/sum(germination_count * days_to_germ),
+    germination_rate = ifelse(is.nan(germination_rate) | is.infinite(germination_rate), 
+                              0, germination_rate)
+  )
+
+germ_wk3 <- germ_wk3 %>% 
+  group_by(Cell) %>% 
+  mutate(
+    germination_rate = sum(germination_count)/sum(germination_count * days_to_germ),
+    germination_rate = ifelse(is.nan(germination_rate) | is.infinite(germination_rate), 
+                              0, germination_rate)
+  )
+
+ggplot(germ_wk1, mapping = aes(x = Treatment, y = germination_rate, color = as.factor(Treatment), 
                                 group = as.factor(Treatment))) +
   geom_boxplot() +
   facet_wrap(.~Pop, ncol = 4) +
@@ -185,7 +236,7 @@ ggplot(dat_long, mapping = aes(x = Treatment, y = germination_rate, color = as.f
   ggtitle("Week 1 Germination Rate")
   
 
-ggplot(dat_long, mapping = aes(x = days_to_germ, y = avg_total, color = as.factor(Treatment),
+ggplot(germ_wk1, mapping = aes(x = days_to_germ, y = avg_total, color = as.factor(Treatment),
                                   group = as.factor(Treatment))) +
   geom_point() +
   geom_line() +
@@ -196,13 +247,16 @@ ggplot(dat_long, mapping = aes(x = days_to_germ, y = avg_total, color = as.facto
   labs(color = "Treatment") +
   ggtitle("Week 1 Cumulative Germination")
 
-dat_long2$date <- as.Date(dat_long$date, format = "%m/%d/%Y")
+ggplot(germ_wk2, mapping = aes(x = Treatment, y = germination_rate, color = as.factor(Treatment), 
+                               group = as.factor(Treatment))) +
+  geom_boxplot() +
+  facet_wrap(.~Pop, ncol = 4) +
+  ylab("Germination rate") +
+  xlab("Population") +
+  labs(color = "Treatment") +
+  ggtitle("Week 2 Germination Rate")
 
-start_date2 <- as.Date("2024-07-31")
-
-dat_long2$days_to_germ <- as.numeric(dat_long$date - start_date) 
-
-ggplot(dat_long2, mapping = aes(x = days_to_germ, y = avg_total, color = as.factor(Treatment),
+ggplot(germ_wk2, mapping = aes(x = days_to_germ, y = avg_total, color = as.factor(Treatment),
                                group = as.factor(Treatment))) +
   geom_point() +
   geom_line() +
@@ -213,9 +267,60 @@ ggplot(dat_long2, mapping = aes(x = days_to_germ, y = avg_total, color = as.fact
   labs(color = "Treatment") +
   ggtitle("Week 2 Cumulative Germination")
 
-# Joined graphs for week 1 and 2
+ggplot(germ_wk3, mapping = aes(x = Treatment, y = germination_rate, color = as.factor(Treatment), 
+                               group = as.factor(Treatment))) +
+  geom_boxplot() +
+  facet_wrap(.~Pop, ncol = 4) +
+  ylab("Germination rate") +
+  xlab("Population") +
+  labs(color = "Treatment") +
+  ggtitle("Week 3 Germination Rate")
 
+ggplot(germ_wk3, mapping = aes(x = days_to_germ, y = avg_total, color = as.factor(Treatment),
+                               group = as.factor(Treatment))) +
+  geom_point() +
+  geom_line() +
+  ylim(0, 6) +
+  facet_wrap(.~Pop, ncol = 4) +
+  ylab("Cumulative germination") +
+  xlab("Time (days)") +
+  labs(color = "Treatment") +
+  ggtitle("Week 3 Cumulative Germination")
 
+# Merge weeks
+
+merged_week_list <- list(germ_wk1, germ_wk2, germ_wk3)
+combined_merged_data <- bind_rows(merged_week_list)
+
+ggplot(combined_merged_data, mapping = aes(x = Treatment, y = germination_rate, color = as.factor(Treatment), 
+                               group = as.factor(Treatment))) +
+  geom_boxplot() +
+  facet_wrap(.~Pop, ncol = 4) +
+  ylab("Germination rate") +
+  xlab("Population") +
+  labs(color = "Treatment") +
+  ggtitle("Germination Rate After 3 Weeks")
+
+ggplot(combined_merged_data, mapping = aes(x = days_to_germ, y = avg_total, color = as.factor(Treatment),
+                               group = as.factor(Treatment))) +
+  geom_point() +
+  geom_line() +
+  ylim(0, 6) +
+  facet_wrap(.~Pop, ncol = 4) +
+  ylab("Cumulative germination") +
+  xlab("Time (days)") +
+  labs(color = "Treatment") +
+  ggtitle("Cumulative Germination After 3 Weeks")
+
+ggplot(combined_merged_data, mapping = aes(x = Treatment, y = germ_percent, color = as.factor(Treatment),
+                                      group = as.factor(Treatment))) +
+  geom_boxplot() +
+  ylim(0, 100) +
+  facet_wrap(.~Pop, ncol = 4) +
+  ylab("Germination percentage") +
+  xlab("Treatment") +
+  labs(color = "Treatment") +
+  ggtitle("Germination Percentage After 3 Weeks")
 
 ## Statistical analysis
 
@@ -224,3 +329,6 @@ model <- aov(Germ_percentage ~ Treatment * Population, data = germ_wk1)
 summary(model)
 
 # Regression
+
+# GLMs
+
