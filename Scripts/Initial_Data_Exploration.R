@@ -5,34 +5,10 @@ library(lubridate)
 library(readr)
 library(purrr)
 
-germ_wk1 <- read_csv("../Input/Week1_Germ.csv") ## Read data for all weeks
-germ_wk2 <- read_csv("../Input/week2_germ.csv")
-germ_wk3 <- read_csv("../Input/Week3_Germ.csv")
+germ_wk1 <- read_csv("./Input/Week1_Germ.csv") ## Read data for all weeks
+germ_wk2 <- read_csv("./Input/week2_germ.csv")
+germ_wk3 <- read_csv("./Input/Week3_Germ.csv")
 
-# Merge all weeks into one dataset
-dat <- 
-
-# Check structure of data
-str(germ_wk1)
-str(germ_wk2)
-str(germ_wk3)
-
-# Create column for data, germination percentage, and total count
-
-library(dplyr)
-library(ggplot2)
-library(tidyverse)
-library(lubridate)
-library(readr)
-library(purrr)
-
-germ_wk1 <- read_csv("Week1_Germ.csv") ## Read data for all weeks
-germ_wk2 <- read_csv("week2_germ.csv")
-germ_wk3 <- read_csv("Week3_Germ.csv")
-
-# Merge all weeks into one dataset
-dat <- 
-  
 # Check structure of data
 str(germ_wk1)
 str(germ_wk2)
@@ -107,14 +83,14 @@ sum_population <-
 
 # Germination counts over time
 
-# Week 1 and 2 Germination percentage by treatment
+# Germination percentage by treatment
 
 # Extract each dataset
 germ_wk1 <- dat_long_list[[1]]
 germ_wk2 <- dat_long_list[[2]]
 germ_wk3 <- dat_long_list[[3]]
 
-# Apply filtering by specific date
+# Apply filtering by end of week date
 germ_wk1_weekly <- germ_wk1 %>% filter(date > "7/29/24")
 germ_wk2_weekly <- germ_wk2 %>% filter(date > "8/5/24")
 germ_wk3_weekly <- germ_wk3 %>% filter(date > "8/12/24")
@@ -139,14 +115,19 @@ germ_filtered_list %>%
         labs(title = paste("Germination Percentage By Population", unique(.x$week)), x = "Population", y = "Germination Percentage"))
 
 # Interaction of population and treatment
-ggplot(weekly_data, aes(x = Pop, y = germ_percent, color = Treatment)) +
+ggplot(germ_wk1_weekly, aes(x = Pop, y = germ_percent, color = Treatment)) +
   geom_boxplot() +
   labs(title = "Week 1: Combined Effects of Treatment and Population on Germination Percentage",
        x = "Population", y = "Germination Percentage")
 
-ggplot(weekly_data, aes(x = Pop, y = germ_percent, color = Treatment)) +
+ggplot(germ_wk2_weekly, aes(x = Pop, y = germ_percent, color = Treatment)) +
   geom_boxplot() +
   labs(title = "Week 2: Combined Effects of Treatment and Population on Germination Percentage",
+       x = "Population", y = "Germination Percentage")
+
+ggplot(germ_wk3_weekly, aes(x = Pop, y = germ_percent, color = Treatment)) +
+  geom_boxplot() +
+  labs(title = "Week 3: Combined Effects of Treatment and Population on Germination Percentage",
        x = "Population", y = "Germination Percentage")
 
 
@@ -330,5 +311,51 @@ summary(model)
 
 # Regression
 
+# Create column for germination_success, with binary values
+germ_wk1 <- germ_wk1 %>%
+  mutate(germination_success = ifelse(germination_count > 0, 1, 0))
+
+germ_wk2 <- germ_wk2 %>%
+  mutate(germination_success = ifelse(germination_count > 0, 1, 0))
+
+germ_wk3 <- germ_wk3 %>%
+  mutate(germination_success = ifelse(germination_count > 0, 1, 0))
+
+# Convert covariate variables to factors
+combined_merged_data$Pop <- as.factor(combined_merged_data$Pop)
+combined_merged_data$Treatment <- as.factor(combined_merged_data$Treatment)
+combined_merged_data$Cell <- as.factor(combined_merged_data$Cell)
+combined_merged_data$Tray <- as.factor(combined_merged_data$Tray)
+
+glm(germination_success ~ Pop * Treatment,
+                   data = germ_wk1, 
+                   family = binomial())
+
+glm(germination_success ~ Pop * Treatment,
+    data = germ_wk2, 
+    family = binomial())
+
+glm(germination_success ~ Pop * Treatment,
+    data = germ_wk3, 
+    family = binomial())
+
 # GLMs
+
+glm_germ_rate <- glm(germination_rate ~ Pop + Treatment + Cell + Tray, 
+                     data = combined_merged_data, 
+                     family = gaussian())
+
+summary(glm_germ_rate)
+
+glm_germ_percent <- glm(germ_percent ~ pop + treatment + cell + tray, 
+                        data = combined_merged_data, 
+                        family = gaussian())
+
+summary(glm_germ_percent)
+
+glm_germ_count <- glm(germination_count ~ pop + treatment + cell + tray, 
+                      data = combined_merged_data, 
+                      family = poisson())
+
+summary(glm_germ_count)
 
