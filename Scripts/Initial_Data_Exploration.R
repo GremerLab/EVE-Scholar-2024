@@ -291,17 +291,18 @@ wk2_end_date <- "2024-08-06"
 wk3_end_date <- "2024-08-14"
 
 # Cumulative germination counts, rate, total germ after merging after weeks
+# Transform proportions on logit scale, take mean and standard dev/error, retransform for graphing
 
+# Calculate variables for each row
 cumulative_2_weeks <- combined_merged_data %>%
   filter(date <= wk2_end_date) %>%
-  group_by(Pop, Treatment, Cell, Tray) %>%  # Grouping by relevant columns
+  mutate(days_to_germ = as.numeric(date - start_date1)) %>% 
   mutate(cumulative_germ_count = cumsum(germination_count)) %>%
-  mutate(cumulative_germ_rate = cumsum(avg_total)) %>% 
-  mutate(germ_percent = (cumulative_germ_count / Actual_count) * 100) %>% 
+  mutate(germination_rate = sum(germination_count)/sum(germination_count * days_to_germ),
+    germination_rate = ifelse(is.nan(germination_rate) | is.infinite(germination_rate), 
+                              0, germination_rate)) %>% 
+  mutate(cumulative_germ_percent = (cumulative_germ_count / Actual_count) * 100) %>% 
   ungroup()
-
-cumulative_2_weeks <- cumulative_2_weeks %>%
-  mutate(days_to_germ = as.numeric(date - start_date1))
 
 cumulative_2_weeks <- cumulative_2_weeks %>%
   mutate(week = case_when(
@@ -309,24 +310,29 @@ cumulative_2_weeks <- cumulative_2_weeks %>%
     date > wk1_end_date & date <= wk2_end_date ~ "Week 2"
   ))
 
-cumulative_2_weeks <- cumulative_2_weeks %>% 
-  group_by(Cell) %>% 
-  mutate(
-    germination_rate = sum(germination_count)/sum(germination_count * days_to_germ),
-    germination_rate = ifelse(is.nan(germination_rate) | is.infinite(germination_rate), 
-                              0, germination_rate)
-  )
+# Summaries for cumulative germination group by day, pop, treatment
+
+cumulative_2wk_avg_germ <- cumulative_2_weeks %>% 
+  group_by(Pop, Treatment, date) %>%  # Grouping by relevant columns
+  summarise(cumulative_germ_avg = mean(cumulative_germ_count)) %>% 
+  ungroup()
+
+# Summaries for average germination rate for every pop/treatment
+cumulative_2wk_avg_germ_rate <- cumulative_2_weeks %>% 
+  group_by(Pop, Treatment) %>%
+  summarise(germination_rate_avg = mean(germination_rate)) %>% 
+           ungroup()
 
 cumulative_3_weeks <- combined_merged_data %>%
   filter(date <= wk3_end_date) %>%
-  group_by(Pop, Treatment, Cell, Tray) %>%  # Grouping by relevant columns
+  mutate(days_to_germ = as.numeric(date - start_date1)) %>% 
   mutate(cumulative_germ_count = cumsum(germination_count)) %>%
-  mutate(cumulative_germ_rate = cumsum(avg_total)) %>% 
-  mutate(germ_percent = (cumulative_germ_count / Actual_count) * 100) %>% 
+  mutate(germination_rate = sum(germination_count)/sum(germination_count * days_to_germ),
+         germination_rate = ifelse(is.nan(germination_rate) | is.infinite(germination_rate), 
+                                   0, germination_rate)) %>% 
+  mutate(cumulative_germ_percent = (cumulative_germ_count / Actual_count) * 100) %>% 
   ungroup()
 
-cumulative_3_weeks <- cumulative_3_weeks %>%
-  mutate(days_to_germ = as.numeric(date - start_date1))
 
 cumulative_3_weeks <- cumulative_3_weeks %>%
   mutate(week = case_when(
@@ -335,13 +341,40 @@ cumulative_3_weeks <- cumulative_3_weeks %>%
     date > wk2_end_date & date <= wk3_end_date ~ "Week 3"
   ))
 
+cumulative_3wk_avg_germ <- cumulative_3_weeks %>% 
+  group_by(Pop, Treatment, date) %>%  # Grouping by relevant columns
+  summarise(cumulative_germ_avg = mean(cumulative_germ_count)) %>% 
+  ungroup()
+
+cumulative_3wk_avg_germ_rate <- cumulative_3_weeks %>% 
+  group_by(Pop, Treatment) %>%
+  summarise(germination_rate_avg = mean(germination_rate)) %>% 
+  ungroup()
+
+# Add elevation data, organize graphs that way
+elevation_data <- read.csv("./Input/elevation_data.csv")
+
+# Add index column to keep original order before merging
+cumulative_2_weeks <- cumulative_2_weeks %>%
+  mutate(Index = row_number())
+
+cumulative_3_weeks <- cumulative_3_weeks %>%
+  mutate(Index = row_number())
+
+cumulative_2_weeks <- merge(cumulative_2_weeks, elevation_data, by = "Pop")
+
+cumulative_2_weeks <- cumulative_2_weeks %>% 
+  arrange(Index) 
+
+cumulative_3_weeks <- merge(cumulative_3_weeks, elevation_data, by = "Pop")
+
 cumulative_3_weeks <- cumulative_3_weeks %>% 
-  group_by(Cell) %>% 
-  mutate(
-    germination_rate = sum(germination_count)/sum(germination_count * days_to_germ),
-    germination_rate = ifelse(is.nan(germination_rate) | is.infinite(germination_rate), 
-                              0, germination_rate)
-  )
+  arrange(Index) 
+
+# Add fire history data
+# Visualization of sites through GIS, identify if sites with more fire experience higher germination under fire cues
+# Potentially overlay distribution of germinants of each pop/site with fire history? 
+
 
 # Graphs after 2 and 3 weeks
 
@@ -350,11 +383,11 @@ ggplot(cumulative_2_weeks, mapping = aes(x = Treatment, y = germination_rate, co
   geom_boxplot() +
   facet_wrap(.~Pop, ncol = 4) +
   ylab("Germination rate") +
-  xlab("Population") +
+  xlab("Treatment") +
   labs(color = "Treatment") +
   ggtitle("Germination Rate After 2 Weeks")
 
-ggplot(cumulative_2_weeks, mapping = aes(x = days_to_germ, y = avg_total, color = as.factor(Treatment),
+ggplot(cumulative_2wk_avg_germ, mapping = aes(x = date, y = cumulative_germ_avg, color = as.factor(Treatment),
                                          group = as.factor(Treatment))) +
   geom_point() +
   geom_line() +
@@ -364,6 +397,8 @@ ggplot(cumulative_2_weeks, mapping = aes(x = days_to_germ, y = avg_total, color 
   xlab("Time (days)") +
   labs(color = "Treatment") +
   ggtitle("Cumulative Germination After 2 Weeks")
+
+
 
 ggplot(cumulative_2_weeks, mapping = aes(x = Treatment, y = germ_percent, color = as.factor(Treatment),
                                          group = as.factor(Treatment))) +
@@ -376,17 +411,16 @@ ggplot(cumulative_2_weeks, mapping = aes(x = Treatment, y = germ_percent, color 
   ggtitle("Germination Percentage After 2 Weeks")
 
 
-
 ggplot(cumulative_3_weeks, mapping = aes(x = Treatment, y = germination_rate, color = as.factor(Treatment), 
                                group = as.factor(Treatment))) +
   geom_boxplot() +
   facet_wrap(.~Pop, ncol = 4) +
   ylab("Germination rate") +
-  xlab("Population") +
+  xlab("Treatment") +
   labs(color = "Treatment") +
   ggtitle("Germination Rate After 3 Weeks")
 
-ggplot(cumulative_3_weeks, mapping = aes(x = days_to_germ, y = avg_total, color = as.factor(Treatment),
+ggplot(cumulative_3wk_avg_germ, mapping = aes(x = date, y = cumulative_germ_avg, color = as.factor(Treatment),
                                group = as.factor(Treatment))) +
   geom_point() +
   geom_line() +
@@ -396,6 +430,8 @@ ggplot(cumulative_3_weeks, mapping = aes(x = days_to_germ, y = avg_total, color 
   xlab("Time (days)") +
   labs(color = "Treatment") +
   ggtitle("Cumulative Germination After 3 Weeks")
+
+# Can try facet_wrap with elevation, can try out sort_by method
 
 ggplot(cumulative_3_weeks, mapping = aes(x = Treatment, y = germ_percent, color = as.factor(Treatment),
                                       group = as.factor(Treatment))) +
@@ -409,7 +445,28 @@ ggplot(cumulative_3_weeks, mapping = aes(x = Treatment, y = germ_percent, color 
 
 ## Statistical analysis
 
-# Regression
+## Grouped logistic regression
+# Germ_count = event, Actual_count = trials
+
+#cbind(total_germ, Actual_count) ~ Pop * Treatment
+
+# Create dataframe with a total column to use for logistic regression, group by Pop, Treatment, Elev, Cell
+# Two ways:
+# Use summarise function of germination_count, not mutate, for total column
+# Summarise max of cumulative germ count
+# Check if they have same values
+# Keep actual count for each cell
+# Data points should be reduced 
+
+reg_2wk_cumulative <- cumulative_2_weeks %>% 
+  group_by(Actual_count, Pop, Treatment, Elev, Cell) %>%  # Grouping by relevant columns
+  summarise(total_cumulative_germ = max(cumulative_germ_count)) %>% 
+  ungroup()
+
+reg_3wk_cumulative <- cumulative_3_weeks %>% 
+  group_by(Actual_count, Pop, Treatment, Elev, Cell) %>%  # Grouping by relevant columns
+  summarise(total_cumulative_germ = max(cumulative_germ_count)) %>% 
+  ungroup()
 
 # Create column for germination_success, with binary values
 germ_wk1 <- germ_wk1 %>%
@@ -427,40 +484,44 @@ cumulative_2_weeks <- cumulative_2_weeks %>%
 cumulative_3_weeks <- cumulative_3_weeks %>%
   mutate(germination_success = ifelse(germination_count > 0, 1, 0))
 
-glm_wk1 <- glm(germination_success ~ Pop * Treatment,
+# Regression analysis 
+# These variables are used for ANOVA, which will do statistical analysis
+glm_wk1 <- glm(cbind(total_germ, Actual_count) ~ Pop * Treatment,
                    data = germ_wk1, 
                    family = binomial())
 
 summary(glm_wk1)
 
 
-glm_wk2 <- glm(germination_success ~ Pop * Treatment,
+glm_wk2 <- glm(cbind(total_germ, Actual_count) ~ Pop * Treatment,
     data = germ_wk2, 
     family = binomial())
 
 summary(glm_wk2)
 
 
-glm_wk3 <- glm(germination_success ~ Pop * Treatment,
+glm_wk3 <- glm(cbind(total_germ, Actual_count) ~ Pop * Treatment,
     data = germ_wk3, 
     family = binomial())
 
 summary(glm_wk3)
 
 
-glm_combined_wk2 <- glm(germination_success ~ Pop * Treatment,
-    data = cumulative_2_weeks, 
+glm_combined_wk2 <- glm(cbind(total_cumulative_germ, Actual_count) ~ Pop * Treatment,
+    data = reg_2wk_cumulative, 
     family = binomial())
 
-summary(glm_combined)
+summary(glm_combined_wk2)
 
-glm_combined_wk3 <- glm(germination_success ~ Pop * Treatment,
-      data = cumulative_3_weeks, 
+glm_combined_wk3 <- glm(cbind(total_cumulative_germ, Actual_count) ~ Pop * Treatment,
+      data = reg_3wk_cumulative, 
       family = binomial())
 
-summary(glm_combined)
+summary(glm_combined_wk3)
 
 # GLMs
+
+# Reduce dataframe so that each cell, on the last day of the third week, has one value
 
 glm_germ_rate <- glm(germination_rate ~ Pop * Treatment, 
                      data = cumulative_3_weeks, 
@@ -486,13 +547,15 @@ summary(glm_germ_count)
 
 # Levene test
 
-# Transformation
-
 anova(glm_wk1, test = "Chisq")
 
 anova(glm_wk2, test = "Chisq")
 
 anova(glm_wk3, test = "Chisq")
+
+anova(glm_combined_wk2, test = "Chisq")
+
+anova(glm_combined_wk3, test = "Chisq")
 
 anova(glm_combined_wk2, test = "Chisq")
 
