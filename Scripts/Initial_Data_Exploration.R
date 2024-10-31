@@ -677,6 +677,8 @@ glm_germ_rate3 <- glm(germination_rate ~ Pop * Treatment,
 
 summary(glm_germ_rate3)
 
+
+
 glm_germ_rate4 <- glm(germination_rate ~ Pop * Treatment, 
                      data = cumulative_4_weeks, 
                      family = gaussian())
@@ -856,11 +858,11 @@ ggplot(cumulative_4wk_avg_germ, mapping = aes(x = date, y = cumulative_germ_avg,
 
 cumulative_3_weeks$predicted_germ_rate <- predict(glm_germ_rate, type = "response")
 
-cumulative_3_weeks$predicted_germ_success <- predict(glm_combined, type = "response")
+cumulative_3_weeks$predicted_germ_success <- predict(glm_combined_wk3, type = "response")
 
-cumulative_4_weeks$predicted_germ_rate <- predict(glm_germ_rate3, type = "response")
+cumulative_4_weeks$predicted_germ_rate <- predict(glm_germ_rate4, type = "response")
 
-cumulative_4_weeks$predicted_germ_success <- predict(glm_g, type = "response")# Plots
+cumulative_4_weeks$predicted_germ_success <- predict(glm_combined_wk4, type = "response")
 
 # Can try facet_wrap with elevation, can try out sort_by method
 
@@ -890,13 +892,43 @@ avg_germination <- cumulative_4_weeks_new %>%
   group_by(Elev, Treatment, Pop) %>%
   summarize(avg_total_germ_prop = mean(total_germ_prop, na.rm = TRUE), .groups = 'drop')  # Calculate average
 
+reg_total_prop_wk4_avg <- lm(avg_total_germ_prop ~ Elev + Treatment, data = avg_germination)
+
+avg_germination$predicted_total_germ_prop <- predict(reg_total_prop_wk4_avg)
+avg_germination$predicted_total_germ_prop <- pmax(0, pmin(1, avg_germination$predicted_total_germ_prop))
+
 
 ggplot(avg_germination, aes(x = Elev, y = avg_total_germ_prop, color = Treatment)) +
-  geom_point() +  # Scatter plot of averages
-  geom_line(aes(y = predicted_total_germ_prop, color = Treatment) +  
+  geom_point() +
+  geom_line(aes(y = predicted_total_germ_prop, color = Treatment)) +
+  ggtitle("Average Total Germination Proportion After 4 Weeks") +
+  labs(x = "Elevation", y = "Total Germination Proportion") 
+
+ggplot(avg_germination, aes(x = Elev, y = avg_total_germ_prop, color = Treatment)) +
+  geom_point(size = 2) +  # Scatter plot of averages
+  geom_line(aes(y = predicted_total_germ_prop, color = Treatment)) +  
   xlab("Elevation") + 
   ggtitle("Average Total Germination Proportion by Elevation at Week 4") +
   theme_minimal()
   
 str(reg_total_prop_wk4)
+
+## Reverse logit transformation
+
+reg_total_prop_wk4_avg <- glm(avg_total_germ_prop ~ Elev * Treatment, family = binomial(link = "logit"), data = avg_germination)
+
+predictions <- predict(reg_total_prop_wk4_avg, newdata = avg_germination, type = "link", se.fit = TRUE)
+
+# Back-transform predictions and SEs
+avg_germination$predicted_total_germ_prop <- plogis(predictions$fit)  # back-transform mean predictions
+avg_germination$se <- predictions$se.fit  # SE on the logit scale
+avg_germination$lower <- plogis(predictions$fit - predictions$se.fit)  # back-transform lower bound
+avg_germination$upper <- plogis(predictions$fit + predictions$se.fit)  # back-transform upper bound
+
+ggplot(avg_germination, aes(x = Elev, y = avg_total_germ_prop, color = Treatment)) +
+  geom_point(size = 2.5) +
+  geom_line(aes(y = predicted_total_germ_prop, color = Treatment)) +
+  ggtitle("Average Total Germination Proportion After 4 Weeks") +
+  labs(x = "Elevation", y = "Total Germination Proportion") +
+  scale_y_continuous(limits = c(0, 0.45))
 
