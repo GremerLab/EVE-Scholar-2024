@@ -661,6 +661,13 @@ glm_combined_wk4_elev <- glm(cbind(total_cumulative_germ, Actual_count) ~ Elev *
 summary(glm_combined_wk4)
 summary(glm_combined_wk4_elev)
 
+glm_combined_wk4_2 <- glm(cbind(total_cumulative_germ, Actual_count) ~ Treatment,
+                             data = reg_4wk_cumulative, 
+                             family = binomial())
+
+summary(glm_combined_wk4)
+summary(glm_combined_wk4_elev)
+
 # GLMs
 
 # Reduce dataframe so that each cell, on the last day of the third week, has one value
@@ -727,6 +734,7 @@ anova(glm_germ_rate3_elev, test = "Chisq")
 
 anova(glm_germ_rate4, test = "Chisq")
 
+anova(glm_combined_wk4_2, test = "Chisq")
 
 # Add elevation to replace pop, group pops by elevation
 
@@ -842,7 +850,6 @@ ggplot(cumulative_4wk_avg_germ, mapping = aes(x = date, y = cumulative_germ_avg,
   ggtitle("Cumulative Germination After 4 Weeks")
 
 
-
 ggplot(cumulative_4wk_avg_germ, mapping = aes(x = date, y = cumulative_germ_avg, color = as.factor(Pop),
                                               group = as.factor(Pop))) +
   geom_point() +
@@ -869,12 +876,19 @@ cumulative_4_weeks$predicted_germ_success <- predict(glm_combined_wk4, type = "r
 cumulative_4_weeks$Elev_Level <- cut(cumulative_4_weeks$Elev,
                                      breaks = c(-Inf, 786, 1612, 2800),  # Your specified range limits
                                      labels = c("Low", "Medium", "High"))
+cumulative_4wk_avg_germ$Elev_Level <- cut(cumulative_4wk_avg_germ$Elev,
+                                          breaks = c(-Inf, 786, 1612, 2800),  # Your specified range limits
+                                          labels = c("Low", "Medium", "High"))
 
 
 # Elev vs Total proportion of germination at the end of week 4, colored by treatment using regression model + geom_point of original data  
 cumulative_4_weeks_new <- cumulative_4_weeks %>% 
   filter(date == wk4_end_date) %>% 
   mutate(total_germ_prop = total_germ / Actual_count)
+
+cumulative_4_weeks_new$Elev_Level <- cut(cumulative_4_weeks_new$Elev,
+                                         breaks = c(-Inf, 786, 1612, 2800),  # Your specified range limits
+                                         labels = c("Low", "Medium", "High"))
 
 reg_total_prop_wk4 <- lm(total_germ_prop ~ Elev + Treatment, data = cumulative_4_weeks_new)
 
