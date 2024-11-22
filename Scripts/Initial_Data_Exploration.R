@@ -394,6 +394,8 @@ cumulative_3wk_avg_germ_rate <- cumulative_3_weeks %>%
   summarise(germination_rate_avg = mean(germination_rate)) %>% 
   ungroup()
 
+# Only use this dataframe
+# Start script just for poster
 cumulative_4_weeks <- combined_merged_data %>%
   filter(date <= wk4_end_date) %>%
   mutate(days_to_germ = as.numeric(date - start_date1)) %>% 
@@ -571,7 +573,7 @@ reg_3wk_cumulative <- cumulative_3_weeks %>%
   summarise(total_cumulative_germ = max(cumulative_germ_count)) %>% 
   ungroup()
 
-reg_4wk_cumulative <- cumulative_3_weeks %>% 
+reg_4wk_cumulative <- cumulative_4_weeks %>% 
   group_by(Actual_count, Pop, Treatment, Elev, Cell) %>%  # Grouping by relevant columns
   summarise(total_cumulative_germ = max(cumulative_germ_count)) %>% 
   ungroup()
@@ -649,6 +651,8 @@ glm_combined_wk3_elev <- glm(cbind(total_cumulative_germ, Actual_count) ~ Elev *
 summary(glm_combined_wk3)
 summary(glm_combined_wk3_elev)
 
+# Use max of cumulative germ
+# Plot: coefficients for glm on a logit scale, plot germination proportions without transformation
 
 glm_combined_wk4 <- glm(cbind(total_cumulative_germ, Actual_count) ~ Pop * Treatment,
                         data = reg_4wk_cumulative, 
@@ -872,6 +876,10 @@ cumulative_4_weeks$predicted_germ_rate <- predict(glm_germ_rate4, type = "respon
 cumulative_4_weeks$predicted_germ_success <- predict(glm_combined_wk4, type = "response")
 
 # Can try facet_wrap with elevation, can try out sort_by method
+
+# Reverse transformation from predicted line
+
+# Linear model with proportions for each cell
 
 cumulative_4_weeks$Elev_Level <- cut(cumulative_4_weeks$Elev,
                                      breaks = c(-Inf, 786, 1612, 2800),  # Your specified range limits
