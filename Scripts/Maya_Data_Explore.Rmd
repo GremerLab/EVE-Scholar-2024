@@ -148,10 +148,10 @@ ggplot(all_wk_avg, aes(x=Days_to_Germ)) +
   xlab("Days in Inductive Conditions")
 ```
 ```{r}
-ggplot(all_wk_long, aes(y=Germ_rate, color=Treatment)) +
+ggplot(all_wk_long, aes(x=Treatment, y=Germ_rate, color=Treatment)) +
   geom_boxplot()+
   theme_bw()+
-  facet_wrap(.~Pop, ncol=4)+
+  facet_wrap(.~Pop, ncol=4, scales="free_y")+
   ylab("Average Germination Rate") 
 ```
 ```{r}
