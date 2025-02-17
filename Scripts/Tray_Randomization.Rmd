@@ -8,22 +8,34 @@ date: "2025-02-05"
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## R Markdown
+```{r}
+library(googlesheets4)
+library(dplyr)
+library(tidyverse)
+```
+```{r}
+url <- "https://docs.google.com/spreadsheets/d/1ljVYx-veRn9V6ruSoH4KI46yF5Y4VarCVwQGWmdjz8w/edit?gid=1457871616#gid=1457871616"
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+treat_pop <- read_sheet(url, sheet = "Tray Randomizing")
+```
+```{r}
+positions <- c("A1", "A2", "A3", "A4", "A5", "A6", "B1", "B2", "B3", "B4", "B5", "B6", "C1", "C2", "C3", "C4", "C5", "C6", "D1", "D2", "D3", "D4", "D5", "D6")
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
+num_trays <- 20
+num_reps <- 10
+positions_per_tray <- 24
+total_combos <- 48
 ```
 
-## Including Plots
+```{r}
+treat_pop <- treat_pop %>%
+  sample_frac(size = 1)
 
-You can also embed plots, for example:
+tray_pos_combined <- rep(positions, num_reps)  
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+
+tray_numbers <- rep(1:num_trays, each = positions_per_tray)
+
+treat_pop$pos_tray <- paste0(tray_pos_combined[1:total_combos], "_T", tray_numbers[1:total_combos])
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
