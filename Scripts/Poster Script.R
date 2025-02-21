@@ -181,6 +181,9 @@ cumulative_4wk_avg_germ_rate <- cumulative_4_weeks %>%
 # Add elevation data, organize graphs that way
 elevation_data <- read.csv("./Input/elevation_data.csv")
 
+# Add fire data
+fire_data <- read.csv("./Input/fire_history.csv")
+
 cumulative_4_weeks <- merge(cumulative_4_weeks, elevation_data, by = "Pop")
 
 cumulative_4_weeks <- cumulative_4_weeks %>%
@@ -192,12 +195,33 @@ cumulative_4_weeks <- cumulative_4_weeks %>%
 cumulative_4_weeks <- cumulative_4_weeks %>% 
   mutate(total_germ_prop = total_germ / Actual_count)
 
+# Elevation breaks
+cumulative_4_weeks$Elev_Level <- cut(cumulative_4_weeks$Elev,
+                                     breaks = c(-Inf, 786, 1612, 2800),  # Your specified range limits
+                                     labels = c("Low", "Medium", "High"))
+
+# Fire history data merge
+
+cumulative_4_weeks <- merge(cumulative_4_weeks, fire_data, by = "Pop")
+
+
 ## Grouped logistic regression
 
+
+cumulative_4_weeks <- cumulative_4_weeks %>%
+  mutate(total_germ_prop = total_germ / Actual_count) %>%
+  mutate(max_germ_prop = max(total_germ_prop))
+
+
 reg_4wk_cumulative <- cumulative_4_weeks %>% 
-  group_by(Actual_count, Pop, Treatment, Elev, Cell) %>%  # Grouping by relevant columns
-  summarise(total_cumulative_germ = max(cumulative_germ_count)) %>% 
-  ungroup()
+  group_by(Actual_count, Pop, Treatment, Elev, Cell, Elev_Level, total_germ_prop, cumulative_germ_count) %>%  # Grouping by relevant columns
+  mutate(total_cumulative_germ = max(cumulative_germ_count)) %>% 
+  mutate(max_germ_prop = max(total_germ_prop)) %>% 
+  mutate(mean_germ_prop = mean(total_germ_prop))
+
+reg_4wk_cumulative$max_germ_prop <- pmin(reg_4wk_cumulative$max_germ_prop, 1)
+
+# Group by populations 
 
 # GLM
 # Use max of cumulative germ
@@ -207,7 +231,9 @@ glm_combined_wk4 <- glm(cbind(total_cumulative_germ, Actual_count) ~ Pop * Treat
                         data = reg_4wk_cumulative, 
                         family = binomial())
 
-
+glm_combined_wk4_prop <- glm(cbind(total_germ_prop, Actual_count) ~ Pop * Treatment,
+                          data = reg_4wk_cumulative, 
+                          family = binomial())
 
 glm_combined_wk4_elev <- glm(cbind(total_cumulative_germ, Actual_count) ~ Elev * Treatment,
                              data = reg_4wk_cumulative, 
@@ -220,11 +246,168 @@ summary(glm_combined_wk4_elev)
 # ANOVA
 
 anova(glm_combined_wk4, test = "Chisq")
+anova(glm_combined_wk4_prop, test = "Chisq")
 anova(glm_combined_wk4_elev, test = "Chisq")
 
+cumulative_4_weeks
+
+summary_df <- cumulative_4_weeks %>%
+  group_by(FireNum, Treatment, Pop) %>%
+  summarise(
+    mean_germ = mean(total_germ_prop, na.rm = TRUE)
+  )
+
+summary_df
+
+germ_summary <- cumulative_4_weeks %>%
+  group_by(Pop, Treatment, Cell, total_germ_prop) %>%
+  summarise(
+    mean_germ_prop = mean(total_germ_prop, na.rm = TRUE)
+  )
+germ_summary <- germ_summary %>% left_join(fire_data, by = "Pop")
+
+# Statistical test
+
+cumulative_4_weeks <- cumulative_4_weeks %>% 
+  mutate(mean_germ_prop = mean(total_germ_prop))
+
+germ_summary <- germ_summary %>% 
+  filter(!is.na(mean_germ_prop) & is.finite(mean_germ_prop)) %>%
+  mutate(Pop = as.factor(Pop)) %>% 
+  mutate(Treatment = as.factor(Treatment))
+
+library(car)
+
+glm_prop <- glm(total_germ_prop ~ Pop * Treatment,
+                        data = cumulative_4_weeks, 
+                        family = binomial(link = "logit"))
+
+summary(glm_prop)
+anova(glm_prop, test = "Chisq")
+
+anova(cumulative_4_weeks, test = "Chisq")
+mod <- lm(cumulative_4_weeks$total_germ_prop ~ Pop * Treatment, data=cumulative_4_weeks)
+anova(mod)
+x = (residuals(mod))
+hist(x)
+
+install.packages("rstatix")
+library(rstatix)
+
+cumulative_4_weeks <- cumulative_4_weeks %>%
+  mutate(total_germ_prop_inv = 1 / (total_germ_prop + 1))  # Avoid division by zero
+
+shapiro_test(germ_summary$total_germ_prop_inv)
+
+
+cumulative_4_weeks %>%
+  group_by(Pop) %>%
+  shapiro_test(total_germ_prop)
+
+cumulative_4_weeks %>%
+  group_by(Treatment) %>%
+  shapiro_test(total_germ_prop)
+
+# Check Assumptions
+shapiro.test(cumulative_4_weeks$total_germ_prop)  # Should be p > 0.05
+
+# Logit transformation
+germ_summary <- germ_summary %>% filter(mean_germ_prop > 0 & mean_germ_prop < 1)
+germ_summary$logit_germ <- log(germ_summary$mean_germ_prop / (1 - germ_summary$mean_germ_prop + 1e-6))
+
+shapiro.test(log(germ_summary$logit_germ))
+
+
+leveneTest(mean_germ_prop ~ Pop * Treatment, data = germ_summary)
+
+# Post-hoc Tukey Test if significant
+TukeyHSD(mod)
+
+#If assumptions can't be met, move to non-parametric tests
+#Kruskal Wallace - needs treatment to be a factor
+kruskal.test(cumulative_4_weeks$total_germ_prop ~ Pop, data=cumulative_4_weeks)
+kruskal.test(germ_summary$mean_germ_prop ~ Treatment, data=germ_summary)
+
+library(PMCMRplus)
+#Performs Dunn's non-parametric all-pairs comparison test for Kruskal-type ranked data
+kwAllPairsDunnTest(x=germ_summary$mean_germ_prop, g=germ_summary$Pop, p.adjust.method="none")
+kwAllPairsDunnTest(x=germ_summary$mean_germ_prop, g=germ_summary$Pop, p.adjust.method="none")
+
+
+
+library(ggplot2)
+
+ggplot(cumulative_4_weeks, aes(x = as.factor(FireNum), y = total_germ_prop, fill = Treatment)) +
+  stat_summary(fun = mean, geom = "bar", position = position_dodge(), alpha = 0.7) +
+  stat_summary(fun.data = mean_se, geom = "errorbar", position = position_dodge(width = 0.9), width = 0.2) +
+  stat_compare_means(aes(group = Treatment), label = "p.signif", method = "kruskal.test") +  # Add p-values
+  facet_wrap(. ~ Pop) +
+  labs(title = "Interaction of Fire History, Population, and Treatment",
+       x = "Fire Number",
+       y = "Total Germination Proportion") +
+  theme_minimal()
+
+install.packages('ggpubr')
+library(ggpubr)
+
+dunn_results <- dunn.test(
+  x = cumulative_4_weeks$total_germ_prop,  # Numeric response variable
+  g = interaction(cumulative_4_weeks$Pop, cumulative_4_weeks$Treatment),  # Grouping variable
+  method = "bonferroni"
+)
+
+print(dunn_results)
+
+# Extract significance groups and add them to the plot
+ggplot(cumulative_4_weeks, aes(x = FireNum, y = total_germ_prop, fill = Treatment)) +
+  geom_bar(stat = "identity") +
+  facet_wrap(. ~ Pop, ncol = 4) +
+  stat_compare_means(aes(group = Treatment), label = "p.signif", method = "kruskal.test") +  # Add p-values
+  labs(title = "Fire History vs. Germination Proportion with Statistical Significance",
+       x = "Fire Number",
+       y = "Germination Proportion") +
+  theme_minimal()
+
+### Old code for regression plot ###
 # Predicted values for GLM
 
-cumulative_4_weeks$predicted_germ_success <- predict(glm_combined_wk4, newdata = cumulative_4_weeks, type = "response")
+reg_4wk_cumulative$predicted_germ_success <- predict(glm_combined_wk4, newdata = reg_4wk_cumulative, type = "response")
+
+p <- ggplot(reg_4wk_cumulative, aes(x = Elev, y = max_germ_prop, color = Treatment)) +
+  geom_point() +
+  ggtitle("Total Germination Proportion After 4 Weeks") +
+  labs(x = "Elevation", y = "Total Germination Proportion")
+
+Treat = unique(reg_4wk_cumulative$Treatment)
+
+elev = seq(min(reg_4wk_cumulative$Elev), max(reg_4wk_cumulative$Elev), by = 1)
+
+pop = unique(reg_4wk_cumulative$Pop)
+
+glmpred = expand_grid(Treatment = Treat, Elev = elev, Pop = pop) 
+
+glmpred$predicted_germ_success <- predict(glm_combined_wk4_elev, newdata = glmpred, type = "response")
+
+p + geom_line(aes(y = predicted_germ_success), data = glmpred)
+
+# pop
+
+p_2 <- ggplot(reg_4wk_cumulative, aes(x = Elev_Level, y = max_germ_prop, color = Treatment)) +
+  geom_point() +
+  ggtitle("Total Germination Proportion After 4 Weeks") +
+  labs(x = "Elevation", y = "Total Germination Proportion")
+
+Treat = unique(reg_4wk_cumulative$Treatment)
+
+elev = seq(min(reg_4wk_cumulative$Elev), max(reg_4wk_cumulative$Elev), by = 1)
+
+pop = unique(reg_4wk_cumulative$Pop)
+
+glmpred_2 = expand_grid(Treatment = Treat, Elev = elev, Pop = pop) 
+
+glmpred_2$predicted_germ_success <- predict(glm_combined_wk4_elev, newdata = glmpred_2, type = "response")
+
+p_2 + geom_line(aes(y = predicted_germ_success), data = glmpred_2)
 
 # Can try facet_wrap with elevation, can try out sort_by method
 
@@ -242,7 +425,7 @@ cumulative_4_weeks <- cumulative_4_weeks %>%
 
 # Plot
 
-reg_total_prop_wk4 <- glm(total_germ_prop ~ Elev * Treatment, family = binomial(link = "logit"), data = cumulative_4_weeks)
+reg_total_prop_wk4 <- lm(total_germ_prop ~ Elev * Treatment, family = binomial(link = "logit"), data = cumulative_4_weeks)
 cumulative_4_weeks$predicted_total_germ_prop <- predict(reg_total_prop_wk4)
 
 predictions <- predict(reg_total_prop_wk4, newdata = cumulative_4_weeks, type = "response", se.fit = TRUE)
@@ -253,11 +436,15 @@ cumulative_4_weeks$se <- predictions$se.fit
 cumulative_4_weeks$lower <- plogis(predictions$fit - predictions$se.fit) 
 cumulative_4_weeks$upper <- plogis(predictions$fit + predictions$se.fit)
 
-ggplot(cumulative_4_weeks, aes(x = Elev, y = total_germ_prop, color = Treatment)) +
+p <- ggplot(cumulative_4_weeks, aes(x = Elev, y = total_germ_prop, color = Treatment)) +
   geom_point() +
-  geom_line(aes(y = predicted_total_germ_prop)) +
   ggtitle("Total Germination Proportion After 4 Weeks") +
   labs(x = "Elevation", y = "Total Germination Proportion")
 
+ggplot(reg_4wk_cumulative, aes(x = Elev, y = max_germ_prop, color = Treatment)) +
+  geom_point() +
+  geom_line(aes(y = predicted_germ_success)) +
+  ggtitle("Total Germination Proportion After 4 Weeks") +
+  labs(x = "Elevation", y = "Total Germination Proportion")
 
 
