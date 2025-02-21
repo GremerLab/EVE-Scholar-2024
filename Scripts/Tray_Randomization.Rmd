@@ -1,0 +1,41 @@
+---
+title: "Tray_Randomization"
+output: html_document
+date: "2025-02-05"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(googlesheets4)
+library(dplyr)
+library(tidyverse)
+```
+```{r}
+url <- "https://docs.google.com/spreadsheets/d/1ljVYx-veRn9V6ruSoH4KI46yF5Y4VarCVwQGWmdjz8w/edit?gid=1457871616#gid=1457871616"
+
+treat_pop <- read_sheet(url, sheet = "Tray Randomizing")
+```
+```{r}
+positions <- c("A1", "A2", "A3", "A4", "A5", "A6", "B1", "B2", "B3", "B4", "B5", "B6", "C1", "C2", "C3", "C4", "C5", "C6", "D1", "D2", "D3", "D4", "D5", "D6")
+
+num_trays <- 20
+num_reps <- 10
+positions_per_tray <- 24
+total_combos <- 48
+```
+
+```{r}
+treat_pop <- treat_pop %>%
+  sample_frac(size = 1)
+
+tray_pos_combined <- rep(positions, num_reps)  
+
+
+tray_numbers <- rep(1:num_trays, each = positions_per_tray)
+
+treat_pop$pos_tray <- paste0(tray_pos_combined[1:total_combos], "_T", tray_numbers[1:total_combos])
+```
+

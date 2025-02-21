@@ -1,0 +1,178 @@
+---
+title: "Follow_up_analysis"
+output: html_document
+date: "2025-02-19"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(lubridate)
+library(readr)
+library(lmtest)
+library(car)
+library(bbmle)
+library(googlesheets4)
+```
+
+#### Load data from google sheets
+
+```{r}
+url <- "https://docs.google.com/spreadsheets/d/1ljVYx-veRn9V6ruSoH4KI46yF5Y4VarCVwQGWmdjz8w/edit?gid=673524059#gid=673524059"
+week1 <- read_sheet(url, sheet="Germ_Week1")
+
+```
+
+#### Check germination count does not exceed actual count
+
+```{r}
+count_sum <- week1 %>%
+  mutate(count = rowSums(select(.,8:14), na.rm=TRUE),
+         exceeds_count = count > Actual_count)
+```
+
+#### Pivot longer, convert date to days in imbibing conditions
+
+```{r}
+week1 <- week1[, 1:14]
+
+wk1_long <- week1 %>%
+  pivot_longer(cols= 8:14,
+               names_to = "Date",
+               values_to = "Num_germ") %>%
+  mutate(Date = mdy(Date))
+
+start_date <- as.Date("2025-02-12")
+
+wk1_long <- wk1_long %>%
+  mutate(Days_to_Germ = as.integer(Date-start_date))
+```
+
+#### Add cumulative sum per cell
+
+```{r}
+wk1_long <- wk1_long %>%
+  group_by(pos_tray) %>%
+  arrange(Days_to_Germ) %>%
+  mutate(Cum_germ = cumsum(Num_germ)) %>%
+  ungroup()
+```
+
+#### Calculate germination proportion per cell by day
+
+```{r}
+wk1_long <- wk1_long %>%
+  mutate(Germ_prop = Cum_germ/Actual_count)
+```
+
+#### Calculate total germination rate per cell
+
+```{r}
+wk1_long <- wk1_long %>%
+  group_by(pos_tray) %>%
+  arrange(Days_to_Germ) %>% 
+  mutate(Germ_rate = sum(Num_germ) / sum(Num_germ * Days_to_Germ),
+       Germ_rate = ifelse(is.nan(Germ_rate) | is.infinite(Germ_rate), 
+                                 0, Germ_rate)) %>%
+  ungroup()
+```
+
+#### Calculating averages for each pop and treatment
+
+```{r}
+wk1_avg <- wk1_long %>%
+  group_by(Pop, Treatment, Days_to_Germ) %>%
+  summarize(Avg_germ_prop = mean(Germ_prop, na.rm=TRUE),
+            SD_germ_prop = sd(Germ_prop, na.rm=TRUE),
+            Avg_germ_rate = mean(Germ_rate, na.rm=TRUE),
+            SD_germ_rate = sd(Germ_rate, na.rm=TRUE),
+            .groups="drop")
+```
+
+#### Add elevation data
+
+```{r}
+elev <- read_csv("../input/elevation_data.csv")
+
+wk1_long <- wk1_long %>%
+  left_join(elev, by="Pop")
+
+wk1_avg <- wk1_avg %>%
+  left_join(elev, by="Pop")
+
+#add levels to pop so we can order by elevation
+wk1_avg <- wk1_avg %>%
+  arrange(Elev) %>%
+  mutate(Pop = factor(Pop, levels = unique(Pop)))
+
+wk1_long <- wk1_long %>%
+  arrange(Elev) %>%
+  mutate(Pop = factor(Pop, levels=unique(Pop)))
+```
+
+#### Average germination prop by elevation
+
+```{r}
+wk1_avg %>%
+  filter(Days_to_Germ == 7) %>%
+  ggplot(aes(x=Elev, y=Avg_germ_prop, color=Treatment)) +
+  geom_point()+
+  geom_line()
+```
+
+#### Germ prop ordered by elevation
+
+```{r}
+ggplot(wk1_avg, aes(x=Days_to_Germ)) +
+  geom_line(aes(y=Avg_germ_prop, color=Treatment), linewidth=1) +
+  geom_ribbon(aes(ymin = Avg_germ_prop - SD_germ_prop, 
+                  ymax = Avg_germ_prop + SD_germ_prop, 
+                  fill = Treatment), 
+              alpha = 0.1) +
+  theme_bw()+
+  facet_wrap(.~Pop, ncol=4)+
+  ylab("Average Germination Proportion") +
+  xlab("Days in Inductive Conditions")
+```
+
+#### Plot germ rate by pop and treatment ordered by elevation
+
+```{r}
+ggplot(wk1_long, aes(x=Treatment, y=Germ_rate, color=Treatment)) +
+  geom_boxplot()+
+  theme_bw()+
+  facet_wrap(.~Pop, ncol=4, scales="free_y")+
+  ylab("Average Germination Rate") 
+```
+
+#### GLMs
+
+```{r}
+end_wk1 <- wk1_long %>%
+  filter(Days_to_Germ == 7)
+
+m1 <- glm(cbind(Cum_germ, Actual_count) ~ 0 + Pop * Treatment,
+                        data = end_wk1, 
+                        family = binomial())
+m1null <- glm(cbind(Cum_germ, Actual_count) ~ 1,
+                        data = end_wk1, 
+                        family = binomial())
+summary(m1)
+lrtest(m1null, m1)
+Anova(m1)
+
+m2 <- glm(cbind(Cum_germ, Actual_count) ~ 0 + Elev * Treatment,
+                        data = end_wk1, 
+                        family = binomial())
+summary(m2)
+lrtest(m1null, m2)
+Anova(m2)
+#anova(m2, test="Chisq") seems to show the same significance as marginal hypothesis test
+
+ICtab(m1, m2) #population is a better fit than elevation...
+```

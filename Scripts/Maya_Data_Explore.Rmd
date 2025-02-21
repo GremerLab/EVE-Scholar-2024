@@ -1,0 +1,307 @@
+---
+title: "Maya Analysis"
+output: html_document
+date: "2025-01-31"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(lubridate)
+library(readr)
+library(lmtest)
+library(car)
+library(bbmle)
+```
+
+#### Import Data from all weeks
+
+```{r}
+wk1 <- read_csv("../Input/Week1_Germ.csv")
+wk2 <- read_csv("../Input/week2_germ.csv")
+wk3 <- read_csv("../Input/Week3_Germ.csv")
+wk4 <- read_csv("../Input/week4_germ.csv") #moreso week 4+
+```
+
+#### Combine all 4 weeks into one tibble
+
+```{r}
+wk2_date <- wk2 %>%
+  select(Pop, Treatment, Cell, 7:ncol(wk2))
+wk3_date <- wk3 %>%
+  select(Pop, Treatment, Cell, 8:ncol(wk3))
+wk4_date <- wk4 %>%
+  select(Pop, Treatment, Cell, 8:ncol(wk4))
+
+all_wk <- wk1 %>%
+  left_join(wk2_date, by=c("Pop", "Treatment", "Cell")) %>%
+  left_join(wk3_date, by=c("Pop", "Treatment", "Cell")) %>%
+  left_join(wk4_date, by=c("Pop", "Treatment", "Cell"))
+```
+
+#### Check actual count matches across weeks
+
+```{r}
+wk1_act_count <- wk1 %>%
+  select(Pop, Treatment, Cell, Actual_count)
+wk3_act_count <- wk3 %>%
+  select(Pop, Treatment, Cell, Actual_count)
+wk4_act_count <- wk4 %>%
+  select(Pop, Treatment, Cell, Actual_count)
+
+actual_count <- wk1_act_count %>%
+  left_join(wk3_act_count, by=c("Pop", "Treatment", "Cell")) %>%
+  left_join(wk4_act_count, by=c("Pop", "Treatment", "Cell")) %>%
+  mutate(check_count = ifelse(Actual_count.x == Actual_count.y & Actual_count.y == Actual_count, TRUE, FALSE))
+
+count_sum <- all_wk %>%
+  mutate(count = rowSums(select(.,8:ncol(all_wk)), na.rm=TRUE),
+         exceeds_count = count > Actual_count)
+```
+
+##### Two rows have total counts that exceed the actual count - update the actual count to match the total
+
+```{r}
+all_wk <- all_wk %>%
+  mutate(Actual_count = case_when(
+    Tray == 8 & Rep == 4 & Treatment == "Control" & Pop == "IH" & Cell == "A4_T8" ~ 6,
+    Tray == 6 & Rep == 3 & Treatment == "05KNO3" & Pop == "LVTR" & Cell == "A6_T6" ~ 6,
+      TRUE ~ Actual_count 
+    )
+  )
+```
+
+#### Pivot longer, convert date to days in imbibing conditions
+
+```{r}
+all_wk_long <- all_wk %>%
+  pivot_longer(cols= 8:ncol(all_wk),
+               names_to = "Date",
+               values_to = "Num_germ") %>%
+  mutate(Date = as.Date(Date, format = "%m/%d/%Y"))
+
+start_date <- as.Date("2024-07-23")
+
+all_wk_long <- all_wk_long %>%
+  mutate(Days_to_Germ = as.integer(Date-start_date))
+```
+
+#### Add cumulative sum per cell
+
+```{r}
+all_wk_long <- all_wk_long %>%
+  group_by(Cell) %>%
+  arrange(Days_to_Germ) %>%
+  mutate(Cum_germ = cumsum(Num_germ)) %>%
+  ungroup()
+```
+
+#### Calculate germination proportion per cell by day
+
+```{r}
+all_wk_long <- all_wk_long %>%
+  mutate(Germ_prop = Cum_germ/Actual_count)
+```
+
+#### Calculate total germination rate per cell
+
+```{r}
+all_wk_long <- all_wk_long %>%
+  group_by(Cell) %>%
+  arrange(Days_to_Germ) %>% 
+  mutate(Germ_rate = sum(Num_germ) / sum(Num_germ * Days_to_Germ),
+       Germ_rate = ifelse(is.nan(Germ_rate) | is.infinite(Germ_rate), 
+                                 0, Germ_rate)) %>%
+  ungroup()
+```
+
+##### Calculate daily germination rate per cell - DON'T NEED
+
+```{r}
+#all_wk_long <- all_wk_long %>%
+  #group_by(Cell) %>%
+  #arrange(Days_to_Germ) %>% 
+#mutate(
+  #Germ_rate2 = Num_germ / Actual_count,
+  #Germ_rate2 = ifelse(is.nan(Germ_rate2) | is.infinite(Germ_rate2), 0, Germ_rate2)
+  #) %>%
+ # ungroup()
+```
+
+#### Calculating averages for each pop and treatment
+
+```{r}
+all_wk_avg <- all_wk_long %>%
+  group_by(Pop, Treatment, Days_to_Germ) %>%
+  summarize(Avg_germ_prop = mean(Germ_prop, na.rm=TRUE),
+            SD_germ_prop = sd(Germ_prop, na.rm=TRUE),
+            Avg_germ_rate = mean(Germ_rate, na.rm=TRUE),
+            SD_germ_rate = sd(Germ_rate, na.rm=TRUE),
+            .groups="drop")
+
+```
+
+#### Add total germination count per Pop-Treatment
+
+```{r}
+#This is the same as what I calcualted above since it calculates the average of the cumulative sum for each pop-treatment combo by day
+#Cum_germ is the cumulative germination count per cell and grouping by pop and treatment gets all of the cells with the same pop and treatment, and grouping by date calculates a total average for each date
+all_wk_long <- all_wk_long %>%
+  group_by(Date, Pop, Treatment) %>%
+  mutate(Avg_total = mean(Cum_germ)) %>%
+  ungroup()
+```
+
+#### Add elevation data
+
+```{r}
+elev <- read_csv("../input/elevation_data.csv")
+
+all_wk_long <- all_wk_long %>%
+  left_join(elev, by="Pop")
+
+all_wk_avg <- all_wk_avg %>%
+  left_join(elev, by="Pop")
+
+#add levels to pop so we can order by elevation
+all_wk_avg <- all_wk_avg %>%
+  arrange(Elev) %>%
+  mutate(Pop = factor(Pop, levels = unique(Pop)))
+
+all_wk_long <- all_wk_long %>%
+  arrange(Elev) %>%
+  mutate(Pop = factor(Pop, levels=unique(Pop)))
+```
+
+#### Grouped Regression
+
+```{r}
+final_count <- all_wk_long %>%
+  filter(Days_to_Germ == 42)
+
+m1 <- glm(cbind(Cum_germ, Actual_count) ~ 0 + Pop * Treatment,
+                        data = final_count, 
+                        family = binomial())
+m1null <- glm(cbind(Cum_germ, Actual_count) ~ 1,
+                        data = final_count, 
+                        family = binomial())
+summary(m1)
+lrtest(m1null, m1)
+Anova(m1)
+
+m2 <- glm(cbind(Cum_germ, Actual_count) ~ 0 + Elev * Treatment,
+                        data = final_count, 
+                        family = binomial())
+summary(m2)
+lrtest(m1null, m2)
+Anova(m2)
+#anova(m2, test="Chisq") seems to show the same significance as marginal hypothesis test
+
+ICtab(m1, m2) #population is a better fit than elevation...
+```
+
+```{r}
+final_count$predicted_germ_success <- predict(m1, newdata = final_count, type = "response")
+
+final_count$Elev_Level <- cut(final_count$Elev,
+                                     breaks = c(-Inf, 786, 1612, 2800),  # Your specified range limits
+                                     labels = c("Low", "Medium", "High"))
+total_prop <- glm(Germ_prop ~ Elev * Treatment, 
+                  family = binomial(link = "logit"), 
+                  data = final_count)
+total_prop$predicted_total_germ_prop <- predict(total_prop)
+
+predictions <- predict(total_prop, newdata = final_count, type = "response", se.fit = TRUE)
+final_count$predicted_total_germ_prop <- plogis(predictions$fit)
+final_count$se <- predictions$se.fit
+final_count$lower <- plogis(predictions$fit - predictions$se.fit) 
+final_count$upper <- plogis(predictions$fit + predictions$se.fit)
+
+ggplot(final_count, aes(x = Elev, y = Germ_prop, color = Treatment)) +
+  geom_point() +
+  geom_line(aes(y = predicted_total_germ_prop)) +
+  ggtitle("Total Germination Proportion After 4 Weeks") +
+  labs(x = "Elevation", y = "Total Germination Proportion")
+```
+
+```{r}
+#ggplot(all_wk_avg, aes(x=Days_to_Germ)) +
+ # geom_line(aes(y=Avg_germ_rate2, color=Treatment), size=0.7) +
+ # geom_ribbon(aes(ymin = Avg_germ_rate2 - SD_germ_rate2, 
+ #                 ymax = Avg_germ_rate2 + SD_germ_rate2, 
+ #                 fill = Treatment), 
+ #             alpha = 0.1) +
+ # theme_bw()+
+ # facet_wrap(.~Pop, ncol=4, scales= "free_y")+
+ # scale_y_continuous(expand = c(0, 0), limits = c(0, NA)) +
+ # ylab("Average Germination Rate2") +
+ # xlab("Days in Inductive Conditions")
+```
+
+#### Average germination prop by elevation - this is the average of the total since I filtered to only include the final day proportion
+
+```{r}
+all_wk_avg %>%
+  filter(Days_to_Germ == 42) %>%
+  ggplot(aes(x=Elev, y=Avg_germ_prop, color=Treatment)) +
+  geom_point()+
+  geom_line()
+  #geom_smooth(method = "glm", 
+             # method.args = list(family = "binomial"), 
+             # se = FALSE, 
+             # aes(group = Treatment))
+```
+
+```{r}
+final_count$predicted <- predict(m1, type = "response", newdata = final_count)
+
+# Create the plot
+all_wk_avg %>%
+  filter(Days_to_Germ == 42) %>%
+  ggplot(aes(x = Elev, y = Avg_germ_prop, color = Treatment)) +
+  geom_point() +
+  geom_line(data = final_count, aes(x = Elev, y = predicted, color = Treatment), 
+            linetype = "solid") 
+```
+
+#### Average total germination proportion by elevation - this is the same as what I calculated above
+
+```{r}
+all_wk_long %>%
+  filter(Days_to_Germ == 42) %>%
+  ggplot(aes(x=Elev, y=Avg_total, color=Treatment)) +
+  geom_point()+
+  geom_line()
+```
+
+#### Germ prop ordered by elevation
+
+```{r}
+ggplot(all_wk_avg, aes(x=Days_to_Germ)) +
+  geom_line(aes(y=Avg_germ_prop, color=Treatment), linewidth=1) +
+  geom_ribbon(aes(ymin = Avg_germ_prop - SD_germ_prop, 
+                  ymax = Avg_germ_prop + SD_germ_prop, 
+                  fill = Treatment), 
+              alpha = 0.1) +
+  theme_bw()+
+  facet_wrap(.~Pop, ncol=4)+
+  ylab("Average Germination Proportion") +
+  xlab("Days in Inductive Conditions")
+```
+
+#### Plot germ rate by pop and treatment ordered by elevation
+
+```{r}
+ggplot(all_wk_long, aes(x=Treatment, y=Germ_rate, color=Treatment)) +
+  geom_boxplot()+
+  theme_bw()+
+  facet_wrap(.~Pop, ncol=4, scales="free_y")+
+  ylab("Average Germination Rate") 
+```
+
+Time to 50% germination
