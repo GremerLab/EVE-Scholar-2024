@@ -276,64 +276,12 @@ germ_summary <- germ_summary %>%
   mutate(Pop = as.factor(Pop)) %>% 
   mutate(Treatment = as.factor(Treatment))
 
-library(car)
-
 glm_prop <- glm(total_germ_prop ~ Pop * Treatment,
                         data = cumulative_4_weeks, 
                         family = binomial(link = "logit"))
 
 summary(glm_prop)
 anova(glm_prop, test = "Chisq")
-
-anova(cumulative_4_weeks, test = "Chisq")
-mod <- lm(cumulative_4_weeks$total_germ_prop ~ Pop * Treatment, data=cumulative_4_weeks)
-anova(mod)
-x = (residuals(mod))
-hist(x)
-
-install.packages("rstatix")
-library(rstatix)
-
-cumulative_4_weeks <- cumulative_4_weeks %>%
-  mutate(total_germ_prop_inv = 1 / (total_germ_prop + 1))  # Avoid division by zero
-
-shapiro_test(germ_summary$total_germ_prop_inv)
-
-
-cumulative_4_weeks %>%
-  group_by(Pop) %>%
-  shapiro_test(total_germ_prop)
-
-cumulative_4_weeks %>%
-  group_by(Treatment) %>%
-  shapiro_test(total_germ_prop)
-
-# Check Assumptions
-shapiro.test(cumulative_4_weeks$total_germ_prop)  # Should be p > 0.05
-
-# Logit transformation
-germ_summary <- germ_summary %>% filter(mean_germ_prop > 0 & mean_germ_prop < 1)
-germ_summary$logit_germ <- log(germ_summary$mean_germ_prop / (1 - germ_summary$mean_germ_prop + 1e-6))
-
-shapiro.test(log(germ_summary$logit_germ))
-
-
-leveneTest(mean_germ_prop ~ Pop * Treatment, data = germ_summary)
-
-# Post-hoc Tukey Test if significant
-TukeyHSD(mod)
-
-#If assumptions can't be met, move to non-parametric tests
-#Kruskal Wallace - needs treatment to be a factor
-kruskal.test(cumulative_4_weeks$total_germ_prop ~ Pop, data=cumulative_4_weeks)
-kruskal.test(germ_summary$mean_germ_prop ~ Treatment, data=germ_summary)
-
-library(PMCMRplus)
-#Performs Dunn's non-parametric all-pairs comparison test for Kruskal-type ranked data
-kwAllPairsDunnTest(x=germ_summary$mean_germ_prop, g=germ_summary$Pop, p.adjust.method="none")
-kwAllPairsDunnTest(x=germ_summary$mean_germ_prop, g=germ_summary$Pop, p.adjust.method="none")
-
-
 
 library(ggplot2)
 
@@ -362,7 +310,7 @@ print(dunn_results)
 ggplot(cumulative_4_weeks, aes(x = FireNum, y = total_germ_prop, fill = Treatment)) +
   geom_bar(stat = "identity") +
   facet_wrap(. ~ Pop, ncol = 4) +
-  stat_compare_means(aes(group = Treatment), label = "p.signif", method = "kruskal.test") +  # Add p-values
+  stat_compare_means(aes(group = Treatment), label = "p.signif", method = "anova") +  # Add p-values
   labs(title = "Fire History vs. Germination Proportion with Statistical Significance",
        x = "Fire Number",
        y = "Germination Proportion") +
