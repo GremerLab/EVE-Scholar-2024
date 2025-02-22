@@ -4,6 +4,7 @@ library(tidyverse)
 library(lubridate)
 library(readr)
 library(purrr)
+library(car)
 
 # Add separate datasets with cumulative values after each amount weeks
 
@@ -220,7 +221,9 @@ reg_4wk_cumulative <- cumulative_4_weeks %>%
   mutate(mean_germ_prop = mean(total_germ_prop))
 
 reg_4wk_cumulative$max_germ_prop <- pmin(reg_4wk_cumulative$max_germ_prop, 1)
+elevation_data
 
+#YO1, FR, SQ1, TM2, LVTR, and BH
 # Group by populations 
 
 # GLM
@@ -281,9 +284,39 @@ glm_prop <- glm(total_germ_prop ~ Pop * Treatment,
                         family = binomial(link = "logit"))
 
 summary(glm_prop)
-anova(glm_prop, test = "Chisq")
+
+cumulative_4_weeks$FireNum <- as.factor(cumulative_4_weeks$FireNum)
+
+glm_prop_fire <- glm(total_germ_prop ~ FireNum * Treatment,
+                data = cumulative_4_weeks, 
+                family = binomial(link = "logit"))
+
+summary(glm_prop_fire)
+anova(glm_prop_fire, test = "Chisq")
+
+# Pairwise comparisons
+
+library(emmeans)
+
+# Pairwise comparisons for Treatment within each Population
+emmeans(glm_combined_wk4, pairwise ~ Treatment | Pop, type = "response")
+
+# Pairwise comparisons for Population within each Treatment
+emmeans(glm_combined_wk4, pairwise ~ Pop | Treatment, type = "response")
+
+emmeans(glm_combined_wk4_prop, pairwise ~ Treatment | Pop, type = "response")
+
+# Pairwise comparisons for Population within each Treatment
+emmeans(glm_combined_wk4_prop, pairwise ~ Pop | Treatment, type = "response")
+
+emmeans(glm_prop_fire, pairwise ~ Treatment | FireNum, type = "response")
+
+emmeans(glm_prop_fire, pairwise ~ FireNum | Treatment, type = "response")
+
+
 
 library(ggplot2)
+library(ggpubr)
 
 ggplot(cumulative_4_weeks, aes(x = as.factor(FireNum), y = total_germ_prop, fill = Treatment)) +
   stat_summary(fun = mean, geom = "bar", position = position_dodge(), alpha = 0.7) +
@@ -394,5 +427,6 @@ ggplot(reg_4wk_cumulative, aes(x = Elev, y = max_germ_prop, color = Treatment)) 
   geom_line(aes(y = predicted_germ_success)) +
   ggtitle("Total Germination Proportion After 4 Weeks") +
   labs(x = "Elevation", y = "Total Germination Proportion")
+
 
 
