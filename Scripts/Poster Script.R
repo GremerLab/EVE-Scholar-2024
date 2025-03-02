@@ -221,9 +221,7 @@ reg_4wk_cumulative <- cumulative_4_weeks %>%
   mutate(mean_germ_prop = mean(total_germ_prop))
 
 reg_4wk_cumulative$max_germ_prop <- pmin(reg_4wk_cumulative$max_germ_prop, 1)
-elevation_data
 
-#YO1, FR, SQ1, TM2, LVTR, and BH
 # Group by populations 
 
 # GLM
