@@ -25,38 +25,49 @@ library(googlesheets4)
 ```{r}
 url <- "https://docs.google.com/spreadsheets/d/1ljVYx-veRn9V6ruSoH4KI46yF5Y4VarCVwQGWmdjz8w/edit?gid=673524059#gid=673524059"
 week1 <- read_sheet(url, sheet="Germ_Week1")
+week2 <- read_sheet(url, sheet="Germ_Week2")
 
+```
+
+#### Combine weekly data into 1 tibble
+
+```{r}
+week1 <- week1[,1:14]
+week2 <- week2 %>%
+  select(Pop, Treatment, pos_tray, 8:14)
+         
+two_weeks <- week1 %>%
+  left_join(week2, by=c("Pop", "Treatment", "pos_tray"))
+  
 ```
 
 #### Check germination count does not exceed actual count
 
 ```{r}
-count_sum <- week1 %>%
-  mutate(count = rowSums(select(.,8:14), na.rm=TRUE),
+count_sum <- two_weeks %>%
+  mutate(count = rowSums(select(.,8:ncol(two_weeks)), na.rm=TRUE),
          exceeds_count = count > Actual_count)
 ```
 
 #### Pivot longer, convert date to days in imbibing conditions
 
 ```{r}
-week1 <- week1[, 1:14]
-
-wk1_long <- week1 %>%
-  pivot_longer(cols= 8:14,
+two_weeks_long <- two_weeks %>%
+  pivot_longer(cols= 8:ncol(two_weeks),
                names_to = "Date",
                values_to = "Num_germ") %>%
   mutate(Date = mdy(Date))
 
 start_date <- as.Date("2025-02-12")
 
-wk1_long <- wk1_long %>%
+two_weeks_long <- two_weeks_long %>%
   mutate(Days_to_Germ = as.integer(Date-start_date))
 ```
 
 #### Add cumulative sum per cell
 
 ```{r}
-wk1_long <- wk1_long %>%
+two_weeks_long <- two_weeks_long %>%
   group_by(pos_tray) %>%
   arrange(Days_to_Germ) %>%
   mutate(Cum_germ = cumsum(Num_germ)) %>%
@@ -66,14 +77,14 @@ wk1_long <- wk1_long %>%
 #### Calculate germination proportion per cell by day
 
 ```{r}
-wk1_long <- wk1_long %>%
+two_weeks_long <- two_weeks_long %>%
   mutate(Germ_prop = Cum_germ/Actual_count)
 ```
 
 #### Calculate total germination rate per cell
 
 ```{r}
-wk1_long <- wk1_long %>%
+two_weeks_long <- two_weeks_long %>%
   group_by(pos_tray) %>%
   arrange(Days_to_Germ) %>% 
   mutate(Germ_rate = sum(Num_germ) / sum(Num_germ * Days_to_Germ),
@@ -85,7 +96,7 @@ wk1_long <- wk1_long %>%
 #### Calculating averages for each pop and treatment
 
 ```{r}
-wk1_avg <- wk1_long %>%
+two_weeks_avg <- two_weeks_long %>%
   group_by(Pop, Treatment, Days_to_Germ) %>%
   summarize(Avg_germ_prop = mean(Germ_prop, na.rm=TRUE),
             SD_germ_prop = sd(Germ_prop, na.rm=TRUE),
@@ -97,20 +108,20 @@ wk1_avg <- wk1_long %>%
 #### Add elevation data
 
 ```{r}
-elev <- read_csv("../input/elevation_data.csv")
+elevation <- read_sheet(url, sheet="Elevation")
 
-wk1_long <- wk1_long %>%
-  left_join(elev, by="Pop")
+two_weeks_long <- two_weeks_long %>%
+  left_join(elevation, by="Pop")
 
-wk1_avg <- wk1_avg %>%
-  left_join(elev, by="Pop")
+two_weeks_avg <- two_weeks_avg %>%
+  left_join(elevation, by="Pop")
 
 #add levels to pop so we can order by elevation
-wk1_avg <- wk1_avg %>%
+two_weeks_avg <- two_weeks_avg %>%
   arrange(Elev) %>%
   mutate(Pop = factor(Pop, levels = unique(Pop)))
 
-wk1_long <- wk1_long %>%
+two_weeks_long <- two_weeks_long %>%
   arrange(Elev) %>%
   mutate(Pop = factor(Pop, levels=unique(Pop)))
 ```
@@ -118,8 +129,8 @@ wk1_long <- wk1_long %>%
 #### Average germination prop by elevation
 
 ```{r}
-wk1_avg %>%
-  filter(Days_to_Germ == 7) %>%
+two_weeks_avg %>%
+  filter(Days_to_Germ == 14) %>%
   ggplot(aes(x=Elev, y=Avg_germ_prop, color=Treatment)) +
   geom_point()+
   geom_line()
@@ -128,14 +139,14 @@ wk1_avg %>%
 #### Germ prop ordered by elevation
 
 ```{r}
-ggplot(wk1_avg, aes(x=Days_to_Germ)) +
+ggplot(two_weeks_avg, aes(x=Days_to_Germ)) +
   geom_line(aes(y=Avg_germ_prop, color=Treatment), linewidth=1) +
   geom_ribbon(aes(ymin = Avg_germ_prop - SD_germ_prop, 
                   ymax = Avg_germ_prop + SD_germ_prop, 
                   fill = Treatment), 
               alpha = 0.1) +
   theme_bw()+
-  facet_wrap(.~Pop, ncol=4)+
+  facet_wrap(.~Pop, ncol=4, scales="free")+
   ylab("Average Germination Proportion") +
   xlab("Days in Inductive Conditions")
 ```
@@ -143,7 +154,7 @@ ggplot(wk1_avg, aes(x=Days_to_Germ)) +
 #### Plot germ rate by pop and treatment ordered by elevation
 
 ```{r}
-ggplot(wk1_long, aes(x=Treatment, y=Germ_rate, color=Treatment)) +
+ggplot(two_weeks_long, aes(x=Treatment, y=Germ_rate, color=Treatment)) +
   geom_boxplot()+
   theme_bw()+
   facet_wrap(.~Pop, ncol=4, scales="free_y")+
@@ -153,21 +164,21 @@ ggplot(wk1_long, aes(x=Treatment, y=Germ_rate, color=Treatment)) +
 #### GLMs
 
 ```{r}
-end_wk1 <- wk1_long %>%
-  filter(Days_to_Germ == 7)
+end_two_weeks <- two_weeks_long %>%
+  filter(Days_to_Germ == 14)
 
 m1 <- glm(cbind(Cum_germ, Actual_count) ~ 0 + Pop * Treatment,
-                        data = end_wk1, 
+                        data = end_two_weeks, 
                         family = binomial())
 m1null <- glm(cbind(Cum_germ, Actual_count) ~ 1,
-                        data = end_wk1, 
+                        data = end_two_weeks, 
                         family = binomial())
 summary(m1)
 lrtest(m1null, m1)
-Anova(m1)
+Anova(m1) #population alone is the only significant fixed effect, this is different from the week 1 data there the interaction was also significant
 
 m2 <- glm(cbind(Cum_germ, Actual_count) ~ 0 + Elev * Treatment,
-                        data = end_wk1, 
+                        data = end_two_weeks, 
                         family = binomial())
 summary(m2)
 lrtest(m1null, m2)
