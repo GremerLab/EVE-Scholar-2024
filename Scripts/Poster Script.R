@@ -152,6 +152,7 @@ wk4_end_date <- "2024-09-03"
 # Only use this dataframe
 # Start script just for poster
 cumulative_4_weeks <- combined_merged_data %>%
+  group_by(Cell) %>%
   filter(date <= wk4_end_date) %>%
   mutate(days_to_germ = as.numeric(date - start_date1)) %>% 
   mutate(cumulative_germ_count = cumsum(germination_count)) %>%
