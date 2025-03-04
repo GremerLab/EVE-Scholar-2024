@@ -193,6 +193,11 @@ cumulative_4_weeks <- cumulative_4_weeks %>%
 cumulative_4_weeks <- cumulative_4_weeks %>% 
   arrange(Index) 
 
+View(cumulative_4_weeks)
+
+cumulative_4_weeks <- cumulative_4_weeks %>% 
+  arrange(FireNum) 
+
 cumulative_4_weeks <- cumulative_4_weeks %>% 
   mutate(total_germ_prop = total_germ / Actual_count)
 
@@ -205,6 +210,7 @@ cumulative_4_weeks$Elev_Level <- cut(cumulative_4_weeks$Elev,
 
 cumulative_4_weeks <- merge(cumulative_4_weeks, fire_data, by = "Pop")
 
+colnames(cumulative_4_weeks)
 
 ## Grouped logistic regression
 
@@ -260,14 +266,10 @@ emmeans(glm_combined_wk4, pairwise ~ Treatment | Pop, type = "response")
 # Pairwise comparisons for Population within each Treatment
 emmeans(glm_combined_wk4, pairwise ~ Pop | Treatment, type = "response")
 
-emmeans(glm_combined_wk4_prop, pairwise ~ Treatment | Pop, type = "response")
-
 # Pairwise comparisons for Population within each Treatment
-emmeans(glm_combined_wk4_prop, pairwise ~ Pop | Treatment, type = "response")
+emmeans(glm_combined_fire, pairwise ~ Treatment | FireNum, type = "response")
 
-emmeans(glm_prop_fire, pairwise ~ Treatment | FireNum, type = "response")
-
-emmeans(glm_prop_fire, pairwise ~ FireNum | Treatment, type = "response")
+emmeans(glm_combined_fire, pairwise ~ FireNum | Treatment, type = "response")
 
 # Graphs
 
@@ -291,6 +293,20 @@ ggplot(summary_df, aes(x = as.factor(FireNum), y = mean_germ, color = Pop)) +
 
 # Total proportion vs. fire
 
+cumulative_4_weeks$Pop <- factor(cumulative_4_weeks$Pop, levels = unique(cumulative_4_weeks$Pop[order(cumulative_4_weeks$FireNum)]))
+
+cumulative_4_weeks$FireNum <- factor(cumulative_4_weeks$FireNum, levels = sort(unique(cumulative_4_weeks$FireNum)))
+
+# Ordered by Pop and FireNum
+ggplot(cumulative_4_weeks, aes(x = reorder(Pop, FireNum), y = total_germ_prop, fill = Treatment)) +
+  geom_bar(stat = "identity", position = "dodge") +  # Dodge bars for better visibility
+  labs(title = "Germination Proportion by Fire Number and Treatment",
+       x = "Fire Number",
+       y = "Germination Proportion") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Other FireNum vs. Prop plots
 ggplot(cumulative_4_weeks, aes(x = as.factor(FireNum), y = total_germ_prop, color = Treatment)) +
   geom_point() +
   facet_wrap(. ~ Pop) +
