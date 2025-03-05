@@ -248,8 +248,8 @@ anova(glm_combined_wk4_elev, test = "Chisq")
 # Statistical test
 
 #cumulative_4_weeks$FireNum <- as.numeric(cumulative_4_weeks$FireNum) #Jenny cmmented this out
-
-glm_combined_fire <- glm(cbind(total_germ, total_seeds) ~ FireNum * Treatment,
+#Jenny notes that this is testing a quadratic (non-linear) relationship with fire number, which is very signficant
+glm_combined_fire <- glm(cbind(total_germ, total_seeds) ~ as.numeric(FireNum) + Treatment + I(as.numeric(FireNum^2)),
                         data = totalgerm, 
                         family = binomial())
 
@@ -286,7 +286,7 @@ library(ggpubr)
 # Subset dataframe to create mean proportion for each pop/treatment combination
 #Jenny edits
 summary_df <- totalgerm %>%
-  group_by(FireNum, Treatment, Pop) %>%
+  group_by(FireNum, Treatment, Pop, Elev, Elev_Level) %>%
   summarise(mean_germ = mean(germprop, na.rm = TRUE))
 
 # Mean proportion vs. fire
@@ -298,6 +298,27 @@ ggplot(summary_df, aes(x = as.factor(FireNum), y = mean_germ, color = Pop)) +
        x = "Fire Number",
        y = "Mean Germination Proportion")
 
+#get predicted values
+#summary_df$predicted_germ_success <- predict(glm_combined_fire, newdata = summary_df, type = "response")
+Treat = unique(summary_df$Treatment)
+
+Firenumber = seq(from= min(summary_df$FireNum), to = max(summary_df$FireNum), by = 1)
+
+pop = unique(summary_df$Pop)
+
+glmpred = expand_grid(Treatment = Treat, FireNum = Firenumber, Pop = pop) 
+
+glmpred$predicted_germ_success <- predict(glm_combined_fire, newdata = glmpred, type = "response")
+
+
+ggplot(summary_df, aes(x = as.factor(FireNum), y = mean_germ, color = Treatment, group = Treatment)) +
+  geom_point() +
+  #facet_wrap(. ~ Treatment) +
+  labs(title = "Interaction of Fire History, Population, and Treatment", #Jenny suggests changing title
+       x = "Fire Number",
+       y = "Mean Germination Proportion") +
+  geom_line(data = glmpred, aes(y= predicted_germ_success)) + 
+  theme_bw()
 # Total proportion vs. fire
 
 ggplot(summary_df, aes(x = as.factor(FireNum), y = mean_germ, color = Treatment)) +
