@@ -194,11 +194,6 @@ cumulative_4_weeks <- cumulative_4_weeks %>%
 cumulative_4_weeks <- cumulative_4_weeks %>% 
   arrange(Index) 
 
-View(cumulative_4_weeks)
-
-cumulative_4_weeks <- cumulative_4_weeks %>% 
-  arrange(FireNum) 
-
 cumulative_4_weeks <- cumulative_4_weeks %>% 
   mutate(total_germ_prop = total_germ / Actual_count)
 
@@ -211,7 +206,6 @@ cumulative_4_weeks$Elev_Level <- cut(cumulative_4_weeks$Elev,
 
 cumulative_4_weeks <- merge(cumulative_4_weeks, fire_data, by = "Pop")
 
-colnames(cumulative_4_weeks)
 
 ## Grouped logistic regression
 
@@ -220,20 +214,27 @@ cumulative_4_weeks <- cumulative_4_weeks %>%
   mutate(total_germ_prop = total_germ / Actual_count) %>%
   mutate(max_germ_prop = max(total_germ_prop))
 
-cumulative_4_weeks$max_germ_prop <- pmin(cumulative_4_weeks$max_germ_prop, 1)
+cumulative_4_weeks$max_germ_prop <- pmin(cumulative_4_weeks$max_germ_prop, 1) #JRG: why take the pmin?
 
-View(cumulative_4_weeks)
 
 # GLM
 # Use max of cumulative germ
 # Plot: coefficients for glm on a logit scale, plot germination proportions without transformation
 
-glm_combined_wk4 <- glm(cbind(cumulative_germ_count, Actual_count) ~ Pop * Treatment,
-                        data = cumulative_4_weeks, 
+#JRG: this model isn't right, because you will have lots of values for each cell, (each germ census)
+#JRG code
+totalgerm = cumulative_4_weeks %>%
+            group_by(Cell,Pop, Tray, Rep, Treatment,  Elev, Elev_Level, FireNum) %>% #what is the Index variable?
+            summarize(total_germ = max(total_germ,na.rm=T), total_seeds = max(Actual_count)) %>%
+            mutate(germprop = total_germ/total_seeds) 
+            
+
+glm_combined_wk4 <- glm(cbind(total_germ, total_seeds) ~ Pop * Treatment,
+                        data = totalgerm, 
                         family = binomial())
 
-glm_combined_wk4_elev <- glm(cbind(cumulative_germ_count, Actual_count) ~ Elev * Treatment,
-                             data = cumulative_4_weeks, 
+glm_combined_wk4_elev <- glm(cbind(total_germ, total_seeds) ~ Elev * Treatment,
+                             data = totalgerm, 
                              family = binomial())
 
 summary(glm_combined_wk4)
@@ -246,10 +247,10 @@ anova(glm_combined_wk4_elev, test = "Chisq")
 
 # Statistical test
 
-cumulative_4_weeks$FireNum <- as.numeric(cumulative_4_weeks$FireNum)
-
-glm_combined_fire <- glm(cbind(cumulative_germ_count, Actual_count) ~ FireNum * Treatment,
-                        data = cumulative_4_weeks, 
+#cumulative_4_weeks$FireNum <- as.numeric(cumulative_4_weeks$FireNum) #Jenny cmmented this out
+#Jenny notes that this is testing a quadratic (non-linear) relationship with fire number, which is very signficant
+glm_combined_fire <- glm(cbind(total_germ, total_seeds) ~ as.numeric(FireNum) + Treatment + I(as.numeric(FireNum^2)),
+                        data = totalgerm, 
                         family = binomial())
 
 summary(glm_combined_fire)
@@ -268,10 +269,14 @@ emmeans(glm_combined_wk4, pairwise ~ Treatment | Pop, type = "response")
 # Pairwise comparisons for Population within each Treatment
 emmeans(glm_combined_wk4, pairwise ~ Pop | Treatment, type = "response")
 
-# Pairwise comparisons for Population within each Treatment
-emmeans(glm_combined_fire, pairwise ~ Treatment | FireNum, type = "response")
+emmeans(glm_combined_wk4_prop, pairwise ~ Treatment | Pop, type = "response")
 
-emmeans(glm_combined_fire, pairwise ~ FireNum | Treatment, type = "response")
+# Pairwise comparisons for Population within each Treatment
+emmeans(glm_combined_wk4_prop, pairwise ~ Pop | Treatment, type = "response")
+
+emmeans(glm_prop_fire, pairwise ~ Treatment | FireNum, type = "response")
+
+emmeans(glm_prop_fire, pairwise ~ FireNum | Treatment, type = "response")
 
 # Graphs
 
@@ -279,10 +284,10 @@ library(ggplot2)
 library(ggpubr)
 
 # Subset dataframe to create mean proportion for each pop/treatment combination
-
-summary_df <- cumulative_4_weeks %>%
-  group_by(FireNum, Treatment, Pop) %>%
-  summarise(mean_germ = max(total_germ_prop, na.rm = TRUE))
+#Jenny edits
+summary_df <- totalgerm %>%
+  group_by(FireNum, Treatment, Pop, Elev, Elev_Level) %>%
+  summarise(mean_germ = mean(germprop, na.rm = TRUE))
 
 # Mean proportion vs. fire
 
@@ -293,14 +298,48 @@ ggplot(summary_df, aes(x = as.factor(FireNum), y = mean_germ, color = Pop)) +
        x = "Fire Number",
        y = "Mean Germination Proportion")
 
+#get predicted values
+#summary_df$predicted_germ_success <- predict(glm_combined_fire, newdata = summary_df, type = "response")
+Treat = unique(summary_df$Treatment)
+
+Firenumber = seq(from= min(summary_df$FireNum), to = max(summary_df$FireNum), by = 1)
+
+pop = unique(summary_df$Pop)
+
+glmpred = expand_grid(Treatment = Treat, FireNum = Firenumber, Pop = pop) 
+
+glmpred$predicted_germ_success <- predict(glm_combined_fire, newdata = glmpred, type = "response")
+
+
+ggplot(summary_df, aes(x = as.factor(FireNum), y = mean_germ, color = Treatment, group = Treatment)) +
+  geom_point() +
+  #facet_wrap(. ~ Treatment) +
+  labs(title = "Interaction of Fire History, Population, and Treatment", #Jenny suggests changing title
+       x = "Fire Number",
+       y = "Mean Germination Proportion") +
+  geom_line(data = glmpred, aes(y= predicted_germ_success)) + 
+  theme_bw()
 # Total proportion vs. fire
 
-cumulative_4_weeks$Pop <- factor(cumulative_4_weeks$Pop, levels = unique(cumulative_4_weeks$Pop[order(cumulative_4_weeks$FireNum)]))
+ggplot(summary_df, aes(x = as.factor(FireNum), y = mean_germ, color = Treatment)) +
+  geom_point() +
+  facet_wrap(. ~ Pop) +
+  labs(title = "Interaction of Fire History, Population, and Treatment",
+       x = "Fire Number",
+       y = "Total Germination Proportion")
 
-cumulative_4_weeks$FireNum <- factor(cumulative_4_weeks$FireNum, levels = sort(unique(cumulative_4_weeks$FireNum)))
+ggplot(summary_df, aes(x = as.factor(FireNum), y = mean_germ, fill = Treatment)) +
+  stat_summary(fun = mean, geom = "bar", position = position_dodge(), alpha = 0.7) +
+  stat_summary(fun.data = mean_se, geom = "errorbar", position = position_dodge(width = 0.9), width = 0.2) +
+  #stat_compare_means(aes(group = Treatment), label = "p.signif", method = "kruskal.test") +  # Add p-values
+  facet_wrap(. ~ Pop) +
+  labs(title = "Interaction of Fire History, Population, and Treatment",
+       x = "Fire Number",
+       y = "Total Germination Proportion") +
+  theme_minimal()
 
 # Ordered by Pop and FireNum
-ggplot(cumulative_4_weeks, aes(x = reorder(Pop, FireNum), y = total_germ_prop, fill = Treatment)) +
+ggplot(summary_df, aes(x = reorder(Pop, FireNum), y = mean_germ, fill = Treatment)) +
   geom_bar(stat = "identity", position = "dodge") +  # Dodge bars for better visibility
   labs(title = "Germination Proportion by Fire Number and Treatment",
        x = "Fire Number",
@@ -308,36 +347,20 @@ ggplot(cumulative_4_weeks, aes(x = reorder(Pop, FireNum), y = total_germ_prop, f
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-# Other FireNum vs. Prop plots
-ggplot(cumulative_4_weeks, aes(x = as.factor(FireNum), y = total_germ_prop, color = Treatment)) +
-  geom_point() +
-  facet_wrap(. ~ Pop) +
-  labs(title = "Interaction of Fire History, Population, and Treatment",
-       x = "Fire Number",
-       y = "Total Germination Proportion")
 
-ggplot(cumulative_4_weeks, aes(x = as.factor(FireNum), y = total_germ_prop, fill = Treatment)) +
-  stat_summary(fun = mean, geom = "bar", position = position_dodge(), alpha = 0.7) +
-  stat_summary(fun.data = mean_se, geom = "errorbar", position = position_dodge(width = 0.9), width = 0.2) +
-  stat_compare_means(aes(group = Treatment), label = "p.signif", method = "kruskal.test") +  # Add p-values
-  facet_wrap(. ~ Pop) +
-  labs(title = "Interaction of Fire History, Population, and Treatment",
-       x = "Fire Number",
-       y = "Total Germination Proportion") +
-  theme_minimal()
+#install.packages('ggpubr')
+#library(ggpubr)
 
-install.packages('ggpubr')
-library(ggpubr)
+#dunn_results <- dunn.test(
+#  x = cumulative_4_weeks$total_germ_prop,  # Numeric response variable
+ # g = interaction(cumulative_4_weeks$Pop, cumulative_4_weeks$Treatment),  # Grouping variable
+  #method = "bonferroni"
+#)
 
-dunn_results <- dunn.test(
-  x = cumulative_4_weeks$total_germ_prop,  # Numeric response variable
-  g = interaction(cumulative_4_weeks$Pop, cumulative_4_weeks$Treatment),  # Grouping variable
-  method = "bonferroni"
-)
-
-print(dunn_results)
+#print(dunn_results)
 
 # Extract significance groups and add them to the plot
+#You can just use emmeans contrasts...
 ggplot(cumulative_4_weeks, aes(x = FireNum, y = total_germ_prop, fill = Treatment)) +
   geom_bar(stat = "identity") +
   facet_wrap(. ~ Pop, ncol = 4) +
