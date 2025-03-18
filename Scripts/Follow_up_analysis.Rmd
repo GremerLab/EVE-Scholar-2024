@@ -173,7 +173,7 @@ four_weeks_long_expand <- four_weeks_long_expand[,1:13]
 #### Calculate average germination prop and rate per day
 
 ```{r}
-two_weeks_avg_prop <- two_weeks_long_expand %>%
+two_weeks_avg_prop <- two_weeks_long %>%
   group_by(Pop, Treatment, Days_to_Germ) %>%
   summarize(Avg_germ_prop = mean(Germ_prop, na.rm=TRUE),
             SD_germ_prop = sd(Germ_prop, na.rm=TRUE),
@@ -181,7 +181,7 @@ two_weeks_avg_prop <- two_weeks_long_expand %>%
             SE_germ_prop=SD_germ_prop/sqrt(n),
             .groups="drop")
 
-four_weeks_avg_prop <- four_weeks_long_expand %>%
+four_weeks_avg_prop <- four_weeks_long %>%
   group_by(Pop, Treatment, Days_to_Germ) %>%
   summarize(Avg_germ_prop = mean(Germ_prop, na.rm=TRUE),
             SD_germ_prop = sd(Germ_prop, na.rm=TRUE),
@@ -207,12 +207,15 @@ four_weeks_avg_rate <- four_weeks_long_expand %>%
             .groups="drop")
 ```
 
-#### Add elevation and latitude data
+#### Add elevation and latitude data - need to run each line individually for some reason
 
 ```{r}
 elevation <- read_sheet(url, sheet="Elevation_Latitude")
 
 two_weeks_long_expand <- two_weeks_long_expand %>%
+  left_join(elevation, by="Pop")
+
+two_weeks_long <- two_weeks_long%>%
   left_join(elevation, by="Pop")
 
 two_weeks_avg_prop <- two_weeks_avg_prop %>%
@@ -268,10 +271,20 @@ four_weeks_long_expand <- four_weeks_long_expand %>%
 #### Average germination prop by elevation
 
 ```{r}
+library(pscl)   
+end_week2 <- two_weeks_long_expand %>%
+  filter(Days_to_Germ == 14)
+
+#test if germ_prop differed for indiv seeds by elev*treatment with cell nested within rep, need to use a 0-inflated distribution
+
+#end_week2$predicted <- predict(m1, type = "response", newdata = final_count)
+
 two_weeks_avg_prop %>%
   filter(Days_to_Germ == 14) %>%
   ggplot(aes(x=Elev, y=Avg_germ_prop, color=Treatment)) +
-  geom_point()
+  geom_point() 
+  #geom_line(data = end_week2, aes(x = Elev#, y = predicted, color = Treatment), 
+  #          linetype = "solid")
 
 #two_weeks_avg %>%
  # filter(Days_to_Germ == 14) %>%
@@ -297,23 +310,27 @@ So if you are modeling germination rate, you could either model it for each seed
 #### Germ prop ordered by elevation - TRY TO ORDER BY LATITUDE
 
 ```{r}
-ggplot(two_weeks_avg_prop, aes(x=Days_to_Germ)) +
-  geom_line(aes(y=Avg_germ_prop, color=Treatment), linewidth=1) +
-  geom_ribbon(aes(ymin = Avg_germ_prop - SE_germ_prop, 
-                  ymax = Avg_germ_prop + SE_germ_prop, 
-                  fill = Treatment), 
-              alpha = 0.2) +
+ggplot(two_weeks_avg_prop, aes(x=Days_to_Germ, y=Avg_germ_prop, color=Treatment)) +
+  geom_point() +
+  geom_line()+
+ # geom_line(aes(y=Avg_germ_prop, color=Treatment), linewidth=1) +
+ # geom_ribbon(aes(ymin = Avg_germ_prop - SE_germ_prop, 
+  #                ymax = Avg_germ_prop + SE_germ_prop, 
+  #                fill = Treatment), 
+  #            alpha = 0.2) +
   theme_bw()+
   facet_wrap(.~Pop, ncol=4, scales="free")+
   ylab("Average Germination Proportion") +
   xlab("Days in Inductive Conditions")
 
-ggplot(four_weeks_avg_prop, aes(x=Days_to_Germ)) +
-  geom_line(aes(y=Avg_germ_prop, color=Treatment), linewidth=1) +
-  geom_ribbon(aes(ymin = Avg_germ_prop - SE_germ_prop, 
-                  ymax = Avg_germ_prop + SE_germ_prop, 
-                  fill = Treatment), 
-              alpha = 0.1) +
+ggplot(four_weeks_avg_prop, aes(x=Days_to_Germ, y=Avg_germ_prop, color=Treatment)) +
+  geom_point() +
+  geom_line()+
+ # geom_line(aes(y=Avg_germ_prop, color=Treatment), linewidth=1) +
+  #geom_ribbon(aes(ymin = Avg_germ_prop - SE_germ_prop, 
+   #               ymax = Avg_germ_prop + SE_germ_prop, 
+    #              fill = Treatment), 
+     #         alpha = 0.1) +
   theme_bw()+
   facet_wrap(.~Pop, ncol=4, scales="free")+
   ylab("Average Germination Proportion") +
