@@ -18,6 +18,7 @@ library(lmtest)
 library(car)
 library(bbmle)
 library(googlesheets4)
+library(lme4)
 ```
 
 #### Load data from google sheets
@@ -26,6 +27,8 @@ library(googlesheets4)
 url <- "https://docs.google.com/spreadsheets/d/1ljVYx-veRn9V6ruSoH4KI46yF5Y4VarCVwQGWmdjz8w/edit?gid=673524059#gid=673524059"
 week1 <- read_sheet(url, sheet="Germ_Week1")
 week2 <- read_sheet(url, sheet="Germ_Week2")
+week3 <- read_sheet(url, sheet="Germ_Week3")
+week4 <- read_sheet(url, sheet="Germ_Week4")
 
 ```
 
@@ -35,9 +38,17 @@ week2 <- read_sheet(url, sheet="Germ_Week2")
 week1 <- week1[,1:14]
 week2 <- week2 %>%
   select(Pop, Treatment, pos_tray, 8:14)
+week3 <- week3 %>%
+  select(Pop, Treatment, pos_tray, 8:10)
+week4 <- week4 %>%
+  select(Pop, Treatment, pos_tray, 8:11)
          
 two_weeks <- week1 %>%
   left_join(week2, by=c("Pop", "Treatment", "pos_tray"))
+
+four_weeks <- two_weeks %>%
+  left_join(week3, by=c("Pop", "Treatment", "pos_tray")) %>%
+  left_join(week4, by=c("Pop", "Treatment", "pos_tray"))
   
 ```
 
@@ -46,6 +57,10 @@ two_weeks <- week1 %>%
 ```{r}
 count_sum <- two_weeks %>%
   mutate(count = rowSums(select(.,8:ncol(two_weeks)), na.rm=TRUE),
+         exceeds_count = count > Actual_count)
+
+count_sum4 <- four_weeks %>%
+  mutate(count = rowSums(select(.,8:ncol(four_weeks)), na.rm=TRUE),
          exceeds_count = count > Actual_count)
 ```
 
@@ -62,12 +77,27 @@ start_date <- as.Date("2025-02-12")
 
 two_weeks_long <- two_weeks_long %>%
   mutate(Days_to_Germ = as.integer(Date-start_date))
+
+four_weeks_long <- four_weeks %>%
+  pivot_longer(cols= 8:ncol(four_weeks),
+               names_to = "Date",
+               values_to = "Num_germ") %>%
+  mutate(Date = mdy(Date))
+
+four_weeks_long <- four_weeks_long %>%
+  mutate(Days_to_Germ = as.integer(Date-start_date))
 ```
 
 #### Add cumulative sum per cell
 
 ```{r}
 two_weeks_long <- two_weeks_long %>%
+  group_by(pos_tray) %>%
+  arrange(Days_to_Germ) %>%
+  mutate(Cum_germ = cumsum(Num_germ)) %>%
+  ungroup()
+
+four_weeks_long <- four_weeks_long %>%
   group_by(pos_tray) %>%
   arrange(Days_to_Germ) %>%
   mutate(Cum_germ = cumsum(Num_germ)) %>%
@@ -79,49 +109,158 @@ two_weeks_long <- two_weeks_long %>%
 ```{r}
 two_weeks_long <- two_weeks_long %>%
   mutate(Germ_prop = Cum_germ/Actual_count)
+
+four_weeks_long <- four_weeks_long %>%
+  mutate(Germ_prop = Cum_germ/Actual_count)
 ```
 
-#### Calculate total germination rate per cell
+#### Calculate germination rate per seed
 
 ```{r}
-two_weeks_long <- two_weeks_long %>%
-  group_by(pos_tray) %>%
-  arrange(Days_to_Germ) %>% 
-  mutate(Germ_rate = sum(Num_germ) / sum(Num_germ * Days_to_Germ),
-       Germ_rate = ifelse(is.nan(Germ_rate) | is.infinite(Germ_rate), 
-                                 0, Germ_rate)) %>%
-  ungroup()
+#need to create new rows for each seed that germinated since multiple seeds germinated in the same cell on the same day
+two_weeks_no_germ <- two_weeks_long %>%
+  filter(Num_germ == 0) %>%
+  mutate(Germ_rate_seed = NA_real_)
+
+two_weeks_germ <- two_weeks_long %>%
+  filter(Num_germ > 0) %>%
+  mutate(Num_germ_original = Num_germ) %>%
+  uncount(Num_germ) %>%  # Expand the rows based on the number of seeds germinated
+  mutate(Germ_rate_seed = 1 / Days_to_Germ)
+
+two_weeks_germ <- two_weeks_germ %>%
+  mutate(Num_germ = Num_germ_original)
+
+two_weeks_long_expand <- bind_rows(two_weeks_no_germ, two_weeks_germ)
+two_weeks_long_expand <- two_weeks_long_expand[,1:13]
+
+
+
+four_weeks_no_germ <- four_weeks_long %>%
+  filter(Num_germ == 0) %>%
+  mutate(Germ_rate_seed = NA_real_)
+
+four_weeks_germ <- four_weeks_long %>%
+  filter(Num_germ > 0) %>%
+  mutate(Num_germ_original = Num_germ) %>%
+  uncount(Num_germ) %>%  # Expand the rows based on the number of seeds germinated
+  mutate(Germ_rate_seed = 1 / Days_to_Germ)
+
+four_weeks_germ <- four_weeks_germ %>%
+  mutate(Num_germ = Num_germ_original)
+
+four_weeks_long_expand <- bind_rows(four_weeks_no_germ, four_weeks_germ)
+four_weeks_long_expand <- four_weeks_long_expand[,1:13]
+
+
+#two_weeks_long <- two_weeks_long %>%
+ # group_by(pos_tray) %>%
+ # arrange(Days_to_Germ) %>% 
+ # mutate(Germ_rate = sum(Num_germ) / sum(Num_germ * Days_to_Germ),
+     #  Germ_rate = ifelse(is.nan(Germ_rate) | is.infinite(Germ_rate), 
+       #                          0, Germ_rate)) %>%
+  #ungroup()
+
+#four_weeks_long <- four_weeks_long %>%
+ # group_by(pos_tray) %>%
+ # arrange(Days_to_Germ) %>% 
+ # mutate(Germ_rate = sum(Num_germ) / sum(Num_germ * Days_to_Germ),
+  #     Germ_rate = ifelse(is.nan(Germ_rate) | is.infinite(Germ_rate), 
+  #                               0, Germ_rate)) %>%
+  #ungroup()
 ```
 
-#### Calculating averages for each pop and treatment
+#### Calculate average germination prop and rate per day
 
 ```{r}
-two_weeks_avg <- two_weeks_long %>%
+two_weeks_avg_prop <- two_weeks_long_expand %>%
   group_by(Pop, Treatment, Days_to_Germ) %>%
   summarize(Avg_germ_prop = mean(Germ_prop, na.rm=TRUE),
             SD_germ_prop = sd(Germ_prop, na.rm=TRUE),
-            Avg_germ_rate = mean(Germ_rate, na.rm=TRUE),
-            SD_germ_rate = sd(Germ_rate, na.rm=TRUE),
+            n=sum(Germ_prop != 0),
+            SE_germ_prop=SD_germ_prop/sqrt(n),
+            .groups="drop")
+
+four_weeks_avg_prop <- four_weeks_long_expand %>%
+  group_by(Pop, Treatment, Days_to_Germ) %>%
+  summarize(Avg_germ_prop = mean(Germ_prop, na.rm=TRUE),
+            SD_germ_prop = sd(Germ_prop, na.rm=TRUE),
+            n=sum(Germ_prop != 0),
+            SE_germ_prop=SD_germ_prop/sqrt(n),
+            .groups="drop")
+
+
+two_weeks_avg_rate <- two_weeks_long_expand %>%
+  group_by(Pop, Treatment) %>%
+  summarize(Avg_germ_rate = mean(Germ_rate_seed, na.rm=TRUE),
+            SD_germ_rate = sd(Germ_rate_seed, na.rm=TRUE),
+            n=sum(!is.na(Germ_rate_seed)),
+            SE_germ_rate=SD_germ_rate/sqrt(n),
+            .groups="drop")
+
+four_weeks_avg_rate <- four_weeks_long_expand %>%
+  group_by(Pop, Treatment) %>%
+  summarize( Avg_germ_rate = mean(Germ_rate_seed, na.rm=TRUE),
+            SD_germ_rate = sd(Germ_rate_seed, na.rm=TRUE),
+            n=sum(!is.na(Germ_rate_seed)),
+            SE_germ_rate=SD_germ_rate/sqrt(n),
             .groups="drop")
 ```
 
-#### Add elevation data
+#### Add elevation and latitude data
 
 ```{r}
-elevation <- read_sheet(url, sheet="Elevation")
+elevation <- read_sheet(url, sheet="Elevation_Latitude")
 
-two_weeks_long <- two_weeks_long %>%
+two_weeks_long_expand <- two_weeks_long_expand %>%
   left_join(elevation, by="Pop")
 
-two_weeks_avg <- two_weeks_avg %>%
+two_weeks_avg_prop <- two_weeks_avg_prop %>%
+  left_join(elevation, by="Pop")
+
+two_weeks_avg_rate <- two_weeks_avg_rate %>%
+  left_join(elevation, by="Pop")
+
+
+four_weeks_long_expand <- four_weeks_long_expand %>%
+  left_join(elevation, by="Pop")
+
+four_weeks_avg_prop <- four_weeks_avg_prop %>%
+  left_join(elevation, by="Pop")
+
+four_weeks_avg_rate <- four_weeks_avg_rate %>%
   left_join(elevation, by="Pop")
 
 #add levels to pop so we can order by elevation
-two_weeks_avg <- two_weeks_avg %>%
+two_weeks_avg_prop <- two_weeks_avg_prop %>%
   arrange(Elev) %>%
   mutate(Pop = factor(Pop, levels = unique(Pop)))
 
-two_weeks_long <- two_weeks_long %>%
+two_weeks_avg_rate <- two_weeks_avg_rate %>%
+  arrange(Elev) %>%
+  mutate(Pop = factor(Pop, levels = unique(Pop)))
+
+two_weeks_long_expand <- two_weeks_long_expand %>%
+  arrange(Elev) %>%
+  mutate(Pop = factor(Pop, levels=unique(Pop)))
+
+#two_weeks_avg <- two_weeks_avg %>%
+ # arrange(Lat) %>%
+ # mutate(Pop = factor(Pop, levels = unique(Pop)))
+
+#two_weeks_long <- two_weeks_long %>%
+ # arrange(Lat) %>%
+ # mutate(Pop = factor(Pop, levels=unique(Pop)))
+
+four_weeks_avg_prop <- four_weeks_avg_prop %>%
+  arrange(Elev) %>%
+  mutate(Pop = factor(Pop, levels = unique(Pop)))
+
+four_weeks_avg_rate <- four_weeks_avg_rate %>%
+  arrange(Elev) %>%
+  mutate(Pop = factor(Pop, levels = unique(Pop)))
+
+four_weeks_long_expand <- four_weeks_long_expand %>%
   arrange(Elev) %>%
   mutate(Pop = factor(Pop, levels=unique(Pop)))
 ```
@@ -129,20 +268,50 @@ two_weeks_long <- two_weeks_long %>%
 #### Average germination prop by elevation
 
 ```{r}
-two_weeks_avg %>%
+two_weeks_avg_prop %>%
   filter(Days_to_Germ == 14) %>%
   ggplot(aes(x=Elev, y=Avg_germ_prop, color=Treatment)) +
-  geom_point()+
-  geom_line()
+  geom_point()
+
+#two_weeks_avg %>%
+ # filter(Days_to_Germ == 14) %>%
+ # ggplot(aes(x=Lat, y=Avg_germ_prop, color=Treatment)) +
+  #geom_point()+
+ # geom_line()
+
+four_weeks_avg_prop %>%
+  filter(Days_to_Germ == 33) %>%
+  ggplot(aes(x=Elev, y=Avg_germ_prop, color=Treatment)) +
+ geom_point()
+
+#four_weeks_avg %>%
+  #filter(Days_to_Germ == 14) %>%
+  #ggplot(aes(x=Lat, y=Avg_germ_prop, color=Treatment)) +
+  #geom_point()+
+  #geom_line()
+
 ```
 
-#### Germ prop ordered by elevation
+So if you are modeling germination rate, you could either model it for each seed and have well as a random effect which would be nested within block (I think) or you could calculate average germination rate for each well, based on individual seed germination, and use well-level germination rate as the response variable and just have block as the random effect.
+
+#### Germ prop ordered by elevation - TRY TO ORDER BY LATITUDE
 
 ```{r}
-ggplot(two_weeks_avg, aes(x=Days_to_Germ)) +
+ggplot(two_weeks_avg_prop, aes(x=Days_to_Germ)) +
   geom_line(aes(y=Avg_germ_prop, color=Treatment), linewidth=1) +
-  geom_ribbon(aes(ymin = Avg_germ_prop - SD_germ_prop, 
-                  ymax = Avg_germ_prop + SD_germ_prop, 
+  geom_ribbon(aes(ymin = Avg_germ_prop - SE_germ_prop, 
+                  ymax = Avg_germ_prop + SE_germ_prop, 
+                  fill = Treatment), 
+              alpha = 0.2) +
+  theme_bw()+
+  facet_wrap(.~Pop, ncol=4, scales="free")+
+  ylab("Average Germination Proportion") +
+  xlab("Days in Inductive Conditions")
+
+ggplot(four_weeks_avg_prop, aes(x=Days_to_Germ)) +
+  geom_line(aes(y=Avg_germ_prop, color=Treatment), linewidth=1) +
+  geom_ribbon(aes(ymin = Avg_germ_prop - SE_germ_prop, 
+                  ymax = Avg_germ_prop + SE_germ_prop, 
                   fill = Treatment), 
               alpha = 0.1) +
   theme_bw()+
@@ -154,7 +323,15 @@ ggplot(two_weeks_avg, aes(x=Days_to_Germ)) +
 #### Plot germ rate by pop and treatment ordered by elevation
 
 ```{r}
-ggplot(two_weeks_long, aes(x=Treatment, y=Germ_rate, color=Treatment)) +
+ggplot(two_weeks_avg_rate, aes(x=Treatment, y=Avg_germ_rate, color=Treatment)) +
+  geom_point()+
+  geom_errorbar(aes(ymin = Avg_germ_rate-SE_germ_rate, ymax=Avg_germ_rate+SE_germ_rate), width=0.2) +
+  theme_bw()+
+  facet_wrap(.~Pop, ncol=4, scales="free_y")+
+  theme(axis.text.x=element_text(angle=90, hjust=1)) +
+  ylab("Average Germination Rate") 
+
+ggplot(four_weeks_long, aes(x=Treatment, y=Germ_rate, color=Treatment)) +
   geom_boxplot()+
   theme_bw()+
   facet_wrap(.~Pop, ncol=4, scales="free_y")+
@@ -167,10 +344,11 @@ ggplot(two_weeks_long, aes(x=Treatment, y=Germ_rate, color=Treatment)) +
 end_two_weeks <- two_weeks_long %>%
   filter(Days_to_Germ == 14)
 
-m1 <- glm(cbind(Cum_germ, Actual_count) ~ 0 + Pop * Treatment,
+#
+m1 <- glm(cbind(Cum_germ, Actual_count-Cum_germ) ~ 0 + Pop * Treatment,
                         data = end_two_weeks, 
                         family = binomial())
-m1null <- glm(cbind(Cum_germ, Actual_count) ~ 1,
+m1null <- glm(cbind(Cum_germ, Actual_count-Cum_germ) ~ 1,
                         data = end_two_weeks, 
                         family = binomial())
 summary(m1)
@@ -186,4 +364,12 @@ Anova(m2)
 #anova(m2, test="Chisq") seems to show the same significance as marginal hypothesis test
 
 ICtab(m1, m2) #population is a better fit than elevation...
+
+
+#mixed models
+m3 <-  glmer(cbind(Cum_germ, Actual_count-Cum_germ) ~ -1 +Treatment + (1 | Pop), 
+               data = end_two_weeks, 
+               family = binomial)
+Anova(m3)
+summary(m3)
 ```
